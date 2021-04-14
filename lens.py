@@ -18,6 +18,7 @@ class Lens(dict):
             self.update(config_data[name])
         self._parse_coords()
         self._parse_units()
+
     def _parse_coords(self):
         #Find coordinates and construct SkyCoord objects
         coord_keys = [val for val in self.keys() if re.search(r'coords',val) and not re.search(r'unit', val)]
@@ -39,7 +40,9 @@ class Lens(dict):
                 coord_obj = coords.SkyCoord(coord_val, unit=unit_obj, frame=frame)
                 self[coord] = coord_obj
                 self.pop(unit_keys[index])
+
     def _parse_units(self):
+    #Find non-coordinate quantities with units and construct objects (currently only supports units from astropy.units)
         unit_items = [val for val in self.keys() if re.search(r'unit', val)]
         for unit in unit_items:
             key_val = unit.replace('_unit', '')
@@ -47,6 +50,18 @@ class Lens(dict):
             unit_obj = getattr(u, unit_str)
             self[key_val] *= unit_obj
             self.pop(unit)
+    
+    def get_distances(self, cat, ra_unit=u.degree, dec_unit=u.degree, append_to_cat = True):
+        #Gets distances between lens and all objects in the catalog
+        field_coords = coords.SkyCoord(cat['ra'], cat['dec'], unit=(ra_unit, dec_unit), frame='fk5')
+        field_distances = field_coords.separation(self['center_coords'])
+        if append_to_cat:
+            cat['separation'] = field_distances.arcsec
+            return cat
+        else:
+            return field_distances.arcsec
+
+        
 
 if __name__ == "__main__":
     data = Lens("HE1104")

@@ -1,0 +1,22 @@
+expected_cols = ['x_pix', 'y_pix', 'ra', 'dec', 'i_mag', 'i_mag_err', 'classify', 'z', 'm_star', 'm_halo']
+[cols]
+    [cols.x_pix]
+    description = "X position of object on image, in pixels"
+    [cols.y_pix]
+    description = "Y position of object on image, in pixels"
+    [cols.ra]
+    description = "Right acension of object, in degrees"
+    [cols.dec]
+    description = "Declination of object, in degrees"
+    [cols.i_mag]
+    description = "Magnitude of object in i band"
+    [cols.i_mag_err]
+    description = "Error in i-band magnitude"
+    [cols.classify]
+    description = "unknown"
+    [cols.z]
+    description = "redshift of object"
+    [cols.m_star]
+    description = "Stellar mass of object"
+    [cols.m_halo]
+    description = "halo mass of object"

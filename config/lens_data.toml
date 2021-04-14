@@ -1,0 +1,82 @@
+[B1608]
+    z_s = 1.39
+    z_l = 0.63
+    limmag = 24
+    limbright = 23
+    photoz = 'bpzeazy'
+    pixnr = 1200
+    pixlens = 0.200
+    pixlens_unit = 'arcsec'
+    center_coords = '16:09:13.956 +65:32:28.00'
+    center_coords_units = ['hourangle', 'deg']
+    center_coord_frame = 'fk5'
+
+
+[HE0435]
+    z_s = 1.69
+    z_l = 0.455
+    limmag = 24
+    limbright = 23
+    brightmag = 17.48
+    pixnr = 1200
+    pixlens = 0.200
+    pixlens_unit = 'arcsec'
+    center_coords = '04:38:14.871 -12:17:14.96'
+    center_coords_units = ['hourangle', 'deg']
+    center_coord_frame = 'fk5'
+
+
+[HE1104]
+    z_s = 2.32
+    z_l = 0.73
+    limmag = 24
+    limbright = 23
+    pixnr = 1200
+    pixlens = 0.200
+    pixlens_unit = 'arcsec'
+    center_coords = '11:06:33.450 -18:21:24.20'
+    center_coords_units = ['hourangle', 'deg']
+    center_coord_frame = 'fk5'
+
+
+[RX1131]
+    z_s = 0.66
+    z_l = 0.295
+    limmag = 24
+    limbright = 23
+    pixnr = 1200
+    pixlens = 0.200
+    pixlens_unit = 'arcsec'
+    center_coords = '11:31:51.435 -12:31:58.24'
+    center_coords_units = ['hourangle', 'deg']
+    center_coord_frame = 'fk5'
+
+[WFI2033]
+    z_s = 1.66
+    z_l = 0.66
+    limmag = 22.5
+    limbright = 22.5
+    brightmag = 16.90
+    photoz = 'bpz'
+    #photoz = 'bpzeazy'
+    pixnr = 915
+    pixlens = 0.2625 
+    pixlens_unit = 'arcsec'
+    center_coords = '20:33:42.080 -47:23:43.00'
+    center_coords_units = ['hourangle', 'deg']
+    center_coord_frame = 'fk5'
+
+[J1206]
+    z_s = 1.80
+    z_l = 0.75
+    limmag = 23
+    limbright = 23
+    brightmag = 18.05
+    photoz = 'bpz'
+    pixnr = 1283
+    pixlens = 0.187
+    pixlens_unit = 'arcsec'
+    center_coords = '12:06:29.650 +43:32:19.90'
+    center_coords_units = ['hourangle', 'deg']
+    center_coord_frame = 'fk5'
+

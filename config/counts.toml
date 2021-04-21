@@ -1,0 +1,55 @@
+[counts]
+    [counts.gal]
+    params = 0
+    condition = 0
+    [counts.zweight]
+    params = ['z_s', 'cat.z_gal']
+    condition = 0
+    [counts.mass]
+    params = ['cat.m_gal']
+    condition = 0
+    [counts.mass2]
+    params = ['cat.m_gal']
+    condition = 0
+    [counts.mass3]
+    params = ['cat.m_gal']
+    condition = 0
+    [counts.oneoverr]
+    params = ['cat.r']
+    condition = 0
+    [counts.zoverr]
+    params = ['z_s', 'cat.z_gal', 'cat.r']
+    condition = 0
+    [counts.massoverr]
+    params = ['cat.m_gal', 'cat.r']
+    condition = 0
+    [counts.mass2overr]
+    params = ['cat.m_gal', 'cat.r']
+    condition = 0
+    [counts.mass3overr]
+    params = ['cat.m_gal', 'cat.r']
+    condition = 0
+    [counts.mass2rms]
+    params = ['cat.m_gal']
+    condition = 0
+    [counts.mass3rms]
+    params = ['cat.m_gal']
+    condition = 0
+    [counts.mass2overrms]
+    params = ['cat.m_gal', 'cat.r']
+    condition = 0
+    [counts.mass3overrms]
+    params = ['cat.m_gal', 'cat.r']
+    condition = 0
+    [counts.flexion]
+    params = ['cat.m_gal', 'cat.r']
+    condition = 0
+    [counts.tidal]
+    params = ['cat.m_gal', 'cat.r']
+    condition = 0
+    [counts.convergence]
+    params = ['cat.m_gal', 'cat.r']
+    condition = 0
+    [counts.convergencehalo]
+    params = ['cat.m_halo', 'cat.r']
+    condition = 0

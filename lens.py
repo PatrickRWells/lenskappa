@@ -7,9 +7,15 @@ import astropy.coordinates as coords
 
 class Lens(dict):
     def __init__(self, name):
+        """
+        Basic class representing the lens when determining weighted number counts.
+        Can be constructed with Lens("lens_name"), where lens name is one of the lenses
+        in your database
+        """
         self._config = "config/lens_data.toml"
         self._load_data(name)
     def _load_data(self, name):
+        """Internal function, used for loading lens data"""
         config_data = toml.load(self._config)
         if name not in config_data.keys():
             raise ValueError("Data for lens {} not found in configuration files".format(name))
@@ -18,8 +24,11 @@ class Lens(dict):
             self.update(config_data[name])
         self._parse_coords()
         self._parse_units()
+        print("Data for lens {} loaded sucessfully".format(name))
 
     def _parse_coords(self):
+        """Parses coordinates in lens configuration files and returns them as
+           SkyCoord objects"""
         #Find coordinates and construct SkyCoord objects
         coord_keys = [val for val in self.keys() if re.search(r'coords',val) and not re.search(r'unit', val)]
         unit_keys = ['_'.join([coord, 'units']) for coord in coord_keys]
@@ -42,7 +51,10 @@ class Lens(dict):
                 self.pop(unit_keys[index])
 
     def _parse_units(self):
-    #Find non-coordinate quantities with units and construct objects (currently only supports units from astropy.units)
+        """
+        Parases non-coordinate units found in lens configuration files and returns the appropriate
+        object from astropy.units
+        """
         unit_items = [val for val in self.keys() if re.search(r'unit', val)]
         for unit in unit_items:
             key_val = unit.replace('_unit', '')
@@ -52,11 +64,14 @@ class Lens(dict):
             self.pop(unit)
     
     def get_distances(self, cat, ra_unit=u.degree, dec_unit=u.degree, append_to_cat = True):
-        #Gets distances between lens and all objects in the catalog
+        """
+        Gets the distances between the lens and all objects in a given catalog.
+        These can be appended to the catalog or returned seperately.
+        """
         field_coords = coords.SkyCoord(cat['ra'], cat['dec'], unit=(ra_unit, dec_unit), frame='fk5')
         field_distances = field_coords.separation(self['center_coords'])
         if append_to_cat:
-            cat['separation'] = field_distances.arcsec
+            cat['separation'] = field_distances.to(u.arcsec)
             return cat
         else:
             return field_distances.arcsec

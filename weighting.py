@@ -1,4 +1,4 @@
-# P R Wells
+# P Wells
 # This code is based on earlier code by CE Rusu. It is used to calculate weights for objects in a lens field. 
 
 from lens import Lens
@@ -40,7 +40,13 @@ def declare_counts(which='all'):
     pass
 
 
+def compute_weights(lensid, catfile):
+    lens = Lens(lensid)
+    lenscat = load_cat(catfile)
+    constants = load_constants()
+    print(constants)
+
+
+
 if __name__ == "__main__":
-    data = load_cat("HE0435IRACbpz_nobeta_i24.cat")
-    mask = fits.open("mskHE0435_asecrad120.fits")
-    delete_masked(data,mask)
+    compute_weights("HE0435", 'HE0435IRACbpz_nobeta_i24.cat')

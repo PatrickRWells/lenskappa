@@ -71,7 +71,7 @@ class Lens(dict):
         field_coords = coords.SkyCoord(cat['ra'], cat['dec'], unit=(ra_unit, dec_unit), frame='fk5')
         field_distances = field_coords.separation(self['center_coords'])
         if append_to_cat:
-            cat['separation'] = field_distances.to(u.arcsec)
+            cat['dist'] = field_distances.to(u.arcsec)
             return cat
         else:
             return field_distances.arcsec

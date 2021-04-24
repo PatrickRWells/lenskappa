@@ -80,3 +80,17 @@
     center_coords_units = ['hourangle', 'deg']
     center_coord_frame = 'fk5'
 
+[J0924]
+    z_s = 1.523
+    z_l = 0.393
+    limmag = 23
+    limbright = 23
+    brightmag = 18.05
+    photoz = 'bpz'
+    pixnr = 1283
+    pixlens = 0.187
+    pixlens_unit = 'arcsec'
+    center_coords = '141.23246 2.32358'
+    center_coords_units = ['deg', 'deg']
+    center_coord_frame = 'fk5'
+

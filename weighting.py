@@ -66,21 +66,54 @@ def compute_weights(lensid, lens_catfile, cfht_catfile, cfht_maskfile, params, l
     lenscat = lens.get_distances(lenscat) #Get distances between lens and objects in its catalog
     radius = params['radius']
     catalog_masks = cfht_mask.apply_to_catalog(lens, lenscat, radius) #Get the catalog masks
+    which = params.pop['which'] if 'which' in params.keys() else 'all'
+    output = _compute_galweights(lens_catfile, catalog_masks, which, params)
+    return output
 
-def _compute(catfile, which='all', params={}):
+def _compute_galweights(catfile, which='all', params={}):
     if which=='all':
         weights = toml.load('config/counts.toml')['counts']
     else:
         weights = which
     weight_fns = _load_weightfns(list(weights.keys())) #Load the weighting functions
-    needspars = []
-    for weight, pars in weights.items(): #Check to make sure the catalog contains all the required values
+    allpars = []
+    weight_needspars = {}
+    for weight, pars in weights.items(): #Get the catalog parameters that are needed to caclulate the weights
         if pars['params'] == 0:
             continue
+        weightpars = []
         for par_val in pars['params']:
             if par_val.startswith('cat'):
                 parname = par_val.split('.')[-1]
-                print(parname)
+                if parname not in allpars:
+                    allpars.append(parname)
+                weightpars.append(parname)
+        weight_needspars.update({weight: weightpars})        
+    #Check to see if the catalog parameters are either in the catalog, or mapped in the params
+    par_assignment = {}
+    for par_name in allpars:
+        if par_name in catfile.columns:
+            par_assignment.update({par_name: par_name})
+        else:
+            try:
+                if par_name in params['par_assign']:
+                    par_assignment.update({par_name: params['par_assign'][par_name]})
+                else: print("Error: unable to find parameter {} in catalog".format(par_name))
+            except:
+                print("Error: unable to find parameter {} in catalog".format(par_name))
+    weights_final = []
+    for weight, parvals in weight_needspars.items():
+        if all([par in par_assignment.keys() for par in parvals]):
+            weights_final.append(weight)
+    output = {}
+    for weights_key in weights_final:
+        print("Calculating weights for {}".format(weights_key))
+        weight_vals = weight_fns[weights_key](catfile, par_assignment, params['other_data'])
+        output.update({weights_key: weight_vals})
+    return output
+
+                
+        
 
 
 def _load_weightfns(weights):
@@ -97,8 +130,27 @@ def _load_weightfns(weights):
 
 
 if __name__ == "__main__":
+    import pandas as pd
+    from copy import copy
     cfhtmask_file = "/Volumes/workspace/CFHT/masks/W1m0m0_izrgu_finalmask_mosaic.fits"
     cfhtcat_file = "/Volumes/workspace/CFHT/catalogs/W1m0m0/W1m0m0_24galphotmstar.cat"
-    
-    #compute_weights("HE0435", 'HE0435IRACbpz_nobeta_i24.cat', cfhtcat_file, cfhtmask_file, {'radius': 45})
-    _compute('all')
+    cat = pd.read_csv('/Volumes/workspace/LensENV/SDSS0924/photometry/hsc/187280.csv')
+    assign = {'z_gal': 'photoz_best', 'm_gal': 'stellar_mass', 'r': 'dist'}
+    lens = Lens("J0924")
+    print("GETTING DISTANCES")
+    cat = lens.get_distances(cat)
+    print("GOT DISTANCES")
+    cat = copy(cat[(cat['photoz_best'] <= lens['z_s']) & (cat['i_cmodel_mag'] <= 24.0)])
+    cat.to_csv('catalog.csv')
+    other_data = {'z_s': lens['z_s']}
+    pars = {'par_assign': assign, 'other_data': other_data}
+    weights = _compute_galweights(cat, 'all', pars)
+    weight_frame = pd.DataFrame()
+    for weight_key, weights in weights.items():
+        print(type(weights))
+        if type(weights) == np.float64:
+            print("PASS")
+            pass
+        else:
+            weight_frame[weight_key] = weights
+    weight_frame.to_csv("weights.csv")

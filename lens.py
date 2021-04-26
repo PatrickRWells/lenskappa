@@ -6,14 +6,27 @@ import astropy.coordinates as coords
 
 
 class Lens(dict):
-    def __init__(self, name):
+    def __init__(self, name, lensdata=None):
         """
-        Basic class representing the lens when determining weighted number counts.
+        Basic class representing the lens system.
         Can be constructed with Lens("lens_name"), where lens name is one of the lenses
-        in your database
+        in your database.
         """
-        self._config = "config/lens_data.toml"
-        self._load_data(name)
+        if lensdata is None:
+            self._config = self._find_config() #"config/lens_data.toml"
+        else:
+            self._config = lensdata()
+        #self._load_data(name)
+    def _find_config(self):
+        """
+        Internal function. Finds the location of the lens database.
+        """
+        import os
+        path = os.path.dirname(self.__module__)
+        return path
+
+
+
     def _load_data(self, name):
         """Internal function, used for loading lens data"""
         config_data = toml.load(self._config)
@@ -52,6 +65,7 @@ class Lens(dict):
 
     def _parse_units(self):
         """
+        Internal function.
         Parases non-coordinate units found in lens configuration files and returns the appropriate
         object from astropy.units
         """
@@ -65,7 +79,7 @@ class Lens(dict):
     
     def get_distances(self, cat, ra_unit=u.degree, dec_unit=u.degree, append_to_cat = True):
         """
-        Gets the distances between the lens and all objects in a given catalog.
+        Gets the distance in arcseconds between the lens and all objects in a given catalog.
         These can be appended to the catalog or returned seperately.
         """
         field_coords = coords.SkyCoord(cat['ra'], cat['dec'], unit=(ra_unit, dec_unit), frame='fk5')
@@ -76,8 +90,3 @@ class Lens(dict):
         else:
             return field_distances.arcsec
 
-        
-
-if __name__ == "__main__":
-    data = Lens("HE1104")
-    print(data)

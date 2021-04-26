@@ -10,147 +10,81 @@ from astropy.io import fits
 from astropy.wcs import WCS
 import astropy.units as u
 
-def load_lenscat(catfile):
-    try:
-        cat = np.loadtxt(catfile)
-    except:
-        raise IOError("File {} not found".format(catfile))
-        exit()
-    column_details = toml.load("config/catalog.toml")
-    expected_num_cols = len(column_details['expected_cols'])
-    found_num_cols = cat.shape[1]
-    if expected_num_cols != found_num_cols:
-        print("Warning: expected to find {} columns in catalog but found {}".format(expected_num_cols, found_num_cols))
-        print("You may want to check your catalog against config/catalog.toml")
-    else:
-        print("Catalog loaded sucessfully.")
-        print("Assumed catalog columns match with config/catalog.toml")
-        return Table(data=cat, names=column_details['expected_cols'])
-
-def load_cfhtcat(catfile):
-    return catfile
-
-def apply_cfht_mask(mask, cat, cells_on_a_side):
-    pixCFHT = 0.187 * u.arcsec
-    cfht_wcs = WCS(mask)
-    if radius == 45: overlap = 2
-    if radius == 60: overlap = 3
-    if radius == 90: overlap = 4
-    if radius == 120: overlap = 5
-    centerfieldspix = np.zeros((overlap,overlap,2))
-    unmaskedcell = np.zeros((overlap,overlap,cells_on_a_side,cells_on_a_side))
-
-def get_halomass(cat):
-    pass
-
-def init_lens(name):
-    return Lens(name)
-def load_constants():
-    config_location = "config/constants.toml"
-    return toml.load(config_location)
-
-def remove_from_cat():
-    pass
-    #Need to be able to process a catlog of objects to remove. 
-def declare_counts(which='all'):
-    pass
-
-
-
-def compute_weights(lensid, lens_catfile, cfht_catfile, cfht_maskfile, params, lens_maskfile = None):
-    lens = Lens(lensid) #Get the information for the lens
-    lenscat = load_lenscat(lens_catfile) #Load the lens environment catalog
-    cfhtcat = load_cfhtcat(cfht_catfile) #Load the CFHT catalog
-    cfht_mask = Mask(cfht_maskfile) #Load the CFHT mask
-    constants = load_constants() #Load constants
-    lenscat = lens.get_distances(lenscat) #Get distances between lens and objects in its catalog
-    radius = params['radius']
-    catalog_masks = cfht_mask.apply_to_catalog(lens, lenscat, radius) #Get the catalog masks
-    which = params.pop['which'] if 'which' in params.keys() else 'all'
-    output = _compute_galweights(lens_catfile, catalog_masks, which, params)
-    return output
-
-def _compute_galweights(catfile, which='all', params={}):
-    if which=='all':
-        weights = toml.load('config/counts.toml')['counts']
-    else:
-        weights = which
-    weight_fns = _load_weightfns(list(weights.keys())) #Load the weighting functions
-    allpars = []
-    weight_needspars = {}
-    for weight, pars in weights.items(): #Get the catalog parameters that are needed to caclulate the weights
-        if pars['params'] == 0:
-            continue
-        weightpars = []
-        for par_val in pars['params']:
-            if par_val.startswith('cat'):
-                parname = par_val.split('.')[-1]
-                if parname not in allpars:
-                    allpars.append(parname)
-                weightpars.append(parname)
-        weight_needspars.update({weight: weightpars})        
-    #Check to see if the catalog parameters are either in the catalog, or mapped in the params
-    par_assignment = {}
-    for par_name in allpars:
-        if par_name in catfile.columns:
-            par_assignment.update({par_name: par_name})
+class weight:
+    def __init__(self, weightname, weight_config = None):
+        self._name = weightname
+        if weight_config is None:
+            self._config = self._load_weight_config()
         else:
-            try:
-                if par_name in params['par_assign']:
-                    par_assignment.update({par_name: params['par_assign'][par_name]})
-                else: print("Error: unable to find parameter {} in catalog".format(par_name))
-            except:
-                print("Error: unable to find parameter {} in catalog".format(par_name))
-    weights_final = []
-    for weight, parvals in weight_needspars.items():
-        if all([par in par_assignment.keys() for par in parvals]):
-            weights_final.append(weight)
-    output = {}
-    for weights_key in weights_final:
-        print("Calculating weights for {}".format(weights_key))
-        weight_vals = weight_fns[weights_key](catfile, par_assignment, params['other_data'])
-        output.update({weights_key: weight_vals})
-    return output
-
-                
+            self._config=weight_config
+        self._load_weight()
         
 
-
-def _load_weightfns(weights):
-    import weightfns
-    fns = {}
-    for key in weights:
+    
+    def _load_weight_config(self):
+        return toml.load('config/counts.toml')
+    
+    def _load_weight(self):
+        """
+        Loads the appropriate weightfunction
+        """
+        import weightfns
         try:
-            fns.update({key: getattr(weightfns, key)})
+            weightdata = self._config[self._name]
         except:
-            print("Error: Unable to find weight function \'{}\' in weightfns.py. Skipping...".format(key))
-    return fns
-                                                               
+            print("Error: Weight {} not found in configuration files".format(self._name))
+            return
+        self._weightfn = getattr(weightfns, self._name)
+        pars = weightdata['params']
+        self._cat_params = [par.split('.')[-1] for par in pars if par.startswith('cat')]
+        self._other_params = [par for par in pars if not par.startswith('cat')]
+    
+    def compute_weight(self, catalog, pars={}):
+        """
+        Computes the weights based on an input catalog
+        parameters:
+        catalog: Pandas dataframe or astropy table with catalog data
+        pars: additional information, such as parameter maps
+        """
+        #Check to make sure the required parameters exist in the catalog
+        #Or are mapped in pars
+        cat_pars_found = [par in catalog.columns for par in self._cat_params]
+        self._parmap = {}
+        #Check for catalog params
+        for parname, is_found in zip(self._cat_params, cat_pars_found):
+            if is_found:
+                self._parmap.update({parname: parname}) 
+                continue
+            try:
+                parmap = pars['map'][parname]
+                self._parmap.update({parname: parmap})
+            except:
+                print("Error: parameter {} required to calculate weight {} but couldn't find it".format(parname, self._name))
+                return
+        for parname in self._other_params:
+            try:
+                parval = pars[parname]
+                self._parmap.update({parname: parval})
+            except:
+                print("Error: unable to find value for parameter {} required to calculate weight {}".format(parname, self._name))
+                return
+        return self._weightfn(catalog, self._parmap)
+
+def load_all_weights(config='config/counts.toml'):
+    weight_config = toml.load(config)
+    weights = {key: weight(key, weight_config) for key in weight_config.keys()}
+    return(weights)                                                               
            
 
 
 if __name__ == "__main__":
     import pandas as pd
     from copy import copy
-    cfhtmask_file = "/Volumes/workspace/CFHT/masks/W1m0m0_izrgu_finalmask_mosaic.fits"
-    cfhtcat_file = "/Volumes/workspace/CFHT/catalogs/W1m0m0/W1m0m0_24galphotmstar.cat"
-    cat = pd.read_csv('/Volumes/workspace/LensENV/SDSS0924/photometry/hsc/187280.csv')
-    assign = {'z_gal': 'photoz_best', 'm_gal': 'stellar_mass', 'r': 'dist'}
-    lens = Lens("J0924")
-    print("GETTING DISTANCES")
-    cat = lens.get_distances(cat)
-    print("GOT DISTANCES")
-    cat = copy(cat[(cat['photoz_best'] <= lens['z_s']) & (cat['i_cmodel_mag'] <= 24.0)])
-    cat.to_csv('catalog.csv')
-    other_data = {'z_s': lens['z_s']}
-    pars = {'par_assign': assign, 'other_data': other_data}
-    weights = _compute_galweights(cat, 'all', pars)
-    weight_frame = pd.DataFrame()
-    for weight_key, weights in weights.items():
-        print(type(weights))
-        if type(weights) == np.float64:
-            print("PASS")
-            pass
-        else:
-            weight_frame[weight_key] = weights
-    weight_frame.to_csv("weights.csv")
+    import numpy as np
+    weight1 = weight("zweight")
+    columns = ['uk1', 'uk2', 'ra', 'dec', 'imag', 'uk3', 'uk4', 'z', 'uk5', 'uk6']
+    data = np.loadtxt("HE0435IRACbpz_nobeta_i24.cat")
+    cat = pd.DataFrame(data=data, columns=columns)
+    parmap = {'z_gal': 'z'}
+    pars = {'map': parmap, 'z_s': 1.693}
+    load_all_weights()

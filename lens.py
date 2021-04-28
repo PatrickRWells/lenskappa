@@ -16,13 +16,15 @@ class Lens(dict):
             self._config = self._find_config() #"config/lens_data.toml"
         else:
             self._config = lensdata()
-        #self._load_data(name)
+        self._load_data(name)
     def _find_config(self):
         """
         Internal function. Finds the location of the lens database.
         """
         import os
-        path = os.path.dirname(self.__module__)
+        import lenskappa
+        loc = "config/lens_data.toml"
+        path = os.path.join(os.path.dirname(os.path.abspath(lenskappa.__file__)), loc)
         return path
 
 
@@ -76,7 +78,7 @@ class Lens(dict):
             unit_obj = getattr(u, unit_str)
             self[key_val] *= unit_obj
             self.pop(unit)
-    
+
     def get_distances(self, cat, ra_unit=u.degree, dec_unit=u.degree, append_to_cat = True):
         """
         Gets the distance in arcseconds between the lens and all objects in a given catalog.
@@ -90,3 +92,5 @@ class Lens(dict):
         else:
             return field_distances.arcsec
 
+    def get_location(self):
+        return

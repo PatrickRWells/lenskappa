@@ -1,8 +1,8 @@
 # P Wells
 # This code is based on earlier code by CE Rusu. It is used to calculate weights for objects in a lens field. 
 
-from lens import Lens
-from mask import Mask
+from lenskappa.lens import Lens
+from lenskappa.mask import Mask
 import toml
 import numpy as np
 from astropy.table import Table
@@ -19,16 +19,18 @@ class weight:
             self._config=weight_config
         self._load_weight()
         
-
     
     def _load_weight_config(self):
-        return toml.load('config/counts.toml')
+        import os
+        loc = "config/counts.toml"
+        path = os.path.join(os.path.dirname(os.path.abspath(lenskappa.__file__)), loc)
+        return path
     
     def _load_weight(self):
         """
         Loads the appropriate weightfunction
         """
-        import weightfns
+        from lenskappa import weightfns
         try:
             weightdata = self._config[self._name]
         except:
@@ -70,21 +72,14 @@ class weight:
                 return
         return self._weightfn(catalog, self._parmap)
 
-def load_all_weights(config='config/counts.toml'):
+def load_all_weights():
+    import os
+    import lenskappa
+    #Loads all weights found in the given config file and returns a dictionary
+    loc = "config/counts.toml"
+    config = os.path.join(os.path.dirname(os.path.abspath(lenskappa.__file__)), loc)
+
     weight_config = toml.load(config)
     weights = {key: weight(key, weight_config) for key in weight_config.keys()}
     return(weights)                                                               
            
-
-
-if __name__ == "__main__":
-    import pandas as pd
-    from copy import copy
-    import numpy as np
-    weight1 = weight("zweight")
-    columns = ['uk1', 'uk2', 'ra', 'dec', 'imag', 'uk3', 'uk4', 'z', 'uk5', 'uk6']
-    data = np.loadtxt("HE0435IRACbpz_nobeta_i24.cat")
-    cat = pd.DataFrame(data=data, columns=columns)
-    parmap = {'z_gal': 'z'}
-    pars = {'map': parmap, 'z_s': 1.693}
-    load_all_weights()

@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from astropy.coordinates import SkyCoord
+from astropy import wcs, coordinates, units
 import astropy.units as u
 from copy import copy
 
@@ -12,6 +12,9 @@ class catalog:
         if type(cat) == pd.DataFrame:
             self._data = cat
         self.columns = self._data.columns
+        self._params = []
+        self._pixmap_initialized = False
+        self._masked_removed = False
         
     def __str__(self):
         return self._data.__str__()
@@ -22,40 +25,58 @@ class catalog:
 
     def __setitem__(self, key, value):
         self._data[key] = value
+
+    def remove_masked(self, mask):
+        if self._pixmap_initialized:
+            num = len(self._data)
+
+            pix_values = mask.get_pixel_values(self._data['pix_x'], self._data['pix_y'])
+            is_masked = pix_values != 0
+            num_removed = len(self._data[is_masked])
+
+            self._data.drop(self._data[is_masked].index, inplace=True)
+            self._coords  = coordinates.SkyCoord(self._data['ra'], self._data['dec'], unit=(units.deg, units.deg))
+            self._masked_removed = True
+            print("Dropped {} out of {} objects from catalog, based on the mask".format(str(num_removed), str(num)))
+        
+        else:
+            print("ERRROR: Tried to apply a mask to a catalog but pixel positions of catalog objects have not been initialized!")
     
     def apply_mask(self, mask, params, plot=False):
-        if params['internal']:
-            return self._apply_mask_internal(mask, params, plot)
+        if self._masked_removed and self._pixmap_initialized and params['internal']:
+            return self._get_region(mask, params, plot)
         
 
         from copy import copy
-        if not 'x_pix' in self.columns:
+        if not 'pix_x' in self.columns:
             self._init_pixelmap(mask, params)
 
         shape = self._wcs.array_shape
-        x_rounded, y_rounded = round(self._data['x_pix']).astype(int), round(self._data['y_pix']).astype(int)
 
-        in_frame = (x_rounded >= 0) & (y_rounded >= 0) & (x_rounded < shape[0]) & (y_rounded < shape[1])
+        x_rounded, y_rounded = round(self._data['pix_x']).astype(int), round(self._data['pix_y']).astype(int)
+
+        in_frame = (x_rounded >= 0) & (y_rounded >= 0) & (x_rounded < shape[0] - 1) & (y_rounded < shape[1] - 1)
         return_cat = copy(self._data[in_frame])
         not_masked = mask.get_vals(x_rounded[in_frame], y_rounded[in_frame]) == 0
         if plot:
             self._plot_mask_withcat(mask, return_cat, not_masked)
         return return_cat[not_masked]
-
-    def _apply_mask_internal(self, mask, params, plot=False):
-        #Applies a mask to a catalog of the same region
+    
+    def _get_region(self, mask, params, plot):
         center, radius = mask.get_view_center()
-        coords = SkyCoord(self._data['ra'], self._data['dec'], unit=(u.deg, u.deg))
         data_copy = copy(self._data)
-        data_copy['dist'] = coords.separation(center).to(u.arcsec)
+        data_copy['dist'] = self._coords.separation(center).to(u.arcsec)
         data_copy.drop(data_copy[data_copy['dist'] >= radius].index, inplace=True)
-        params['center'] = center
-        x_pix, y_pix = self._return_pixelmap(data_copy, mask, params)
-        x_rounded, y_rounded = round(x_pix).astype(int), round(y_pix).astype(int)
-        not_masked = mask.get_vals(x_rounded, y_rounded) == 0
-        if plot:
-            self._plot_mask_withcat(mask, data_copy, not_masked)
-        return data_copy[not_masked]
+        return data_copy
+
+    def get_macro_pixelmap(self, mask):
+        self._wcs = mask.get_wcs()
+        self._coords  = coordinates.SkyCoord(self._data['ra'], self._data['dec'], unit=(units.deg, units.deg))
+        pix_x, pix_y = self._wcs.world_to_pixel(self._coords)
+        self._data['pix_x'] = np.round(pix_x).astype(int)
+        self._data['pix_y'] = np.round(pix_y).astype(int)
+        self._params.append('macro')
+        self._pixmap_initialized = True
 
     def _init_pixelmap(self, mask, params):
         from astropy import wcs, coordinates, units
@@ -83,13 +104,13 @@ class catalog:
         self._wcs = wcs.WCS(wcs_input)
         self._coords = coordinates.SkyCoord(self._data['ra'], self._data['dec'], unit=(units.deg, units.deg))
         pix_x, pix_y = self._wcs.world_to_pixel(self._coords)
-        self._data['x_pix'] = pix_x
-        self._data['y_pix'] = pix_y
+        self._data['pix_x'] = pix_x
+        self._data['pix_y'] = pix_y
 
     def _return_pixelmap(self, cat, mask, params):
         tempcat = catalog(cat)
         tempcat._init_pixelmap(mask, params)
-        return tempcat['x_pix'], tempcat['y_pix']
+        return tempcat['pix_x'], tempcat['pix_y']
 
     def _plot_mask_withcat(self, mask, cat, catmask):
         import matplotlib.pyplot as plt
@@ -103,7 +124,7 @@ class catalog:
             if not masked:
                 c[index] = 'red'
 
-        plt.scatter(cat['x_pix'], cat['y_pix'], c=c, s=5)
+        plt.scatter(cat['pix_x'], cat['pix_y'], c=c, s=5)
         plt.show()
 
         

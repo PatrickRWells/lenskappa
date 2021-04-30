@@ -4,7 +4,6 @@ def gal(cat, data):
     return len(cat)
 
 def zweight(cat, data):
-    print(data)
     z_gal = cat[data['z_gal']]
     z_s = data['z_s']
     return z_s*z_gal - z_gal*z_gal

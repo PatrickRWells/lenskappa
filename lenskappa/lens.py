@@ -79,18 +79,24 @@ class Lens(dict):
             self[key_val] *= unit_obj
             self.pop(unit)
 
-    def get_distances(self, cat, ra_unit=u.degree, dec_unit=u.degree, append_to_cat = True):
+    def get_distances(self, cat, min_limit = -1, ra_unit=u.degree, dec_unit=u.degree, append_to_cat = True):
         """
         Gets the distance in arcseconds between the lens and all objects in a given catalog.
         These can be appended to the catalog or returned seperately.
+        Min limit replaces object distances less than the given value with that minimum value
+        This is done to limit contribution from galaxy very close to the center of the field
         """
-        field_coords = coords.SkyCoord(cat['ra'], cat['dec'], unit=(ra_unit, dec_unit), frame='fk5')
-        field_distances = field_coords.separation(self['center_coords'])
-        if append_to_cat:
-            cat['dist'] = field_distances.to(u.arcsec)
-            return cat
+        field_distances = None
+        if 'dist' not in cat.columns:
+            field_coords = coords.SkyCoord(cat['ra'], cat['dec'], unit=(ra_unit, dec_unit), frame='fk5')
+            field_distances = field_coords.separation(self['center_coords']).arcsec
         else:
-            return field_distances.arcsec
+            field_distances = cat['dist']
+            
+        if min_limit != -1:
+            too_close = field_distances < min_limit
+            field_distances[too_close] = min_limit
+            cat['dist'] = field_distances
 
     def get_location(self):
         return

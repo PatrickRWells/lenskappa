@@ -84,7 +84,12 @@ def load_all_weights():
     weights = {key: weight(key, weight_config) for key in weight_config.keys()}
     return(weights)
 
-def get_weight_ratios_cfht(lens_name, lens_catalog_file, cfht_catalog_file, cfht_mask_file, radius, field_params, cfht_params):
+def get_weight_rations_hsc(lens_name, lens_catalog_file, hsc_catalog_file, hsc_file, aperture, field_params, hsc_params):
+    pass
+
+
+
+def get_weight_ratios_cfht(lens_name, lens_catalog_file, cfht_catalog_file, cfht_mask_file, aperture, field_params, cfht_params):
     from lenskappa.mask import CFHTMask
     from lenskappa.catalog import catalog
     from lenskappa.lens import Lens
@@ -92,23 +97,26 @@ def get_weight_ratios_cfht(lens_name, lens_catalog_file, cfht_catalog_file, cfht
     #Load the masks and catalogs
     cfht_mask = CFHTMask(cfht_mask_file)
     cfht_catalog = catalog(cfht_catalog_file)
-    lens_catalog = catalog(lens_catalog_file)
+    lens_catalog = catalog(lens_catalog_file, verbose=True)
     lens_obj = Lens(lens_name)
 
     #Get the distances between the objects in the lens catalgo and the lens
     #Setting objects closer than 10 arcseconds to 10
     lens_obj.get_distances(lens_catalog, min_limit = 10)
 
+    outer_radius = aperture['outer']
+    inner_radius = aperture['inner']
+
+    lens_catalog.apply_aperture(inner_radius, outer_radius)
 
     try: weights = field_params['weights']
     except:
         print("Warning: weights not specified. Defaulting to all")
         weight = 'all'
 
-
     #Build the map of fields from the large scale CFHT mask
     print("Building fieldmap on CFHT mask")    
-    cfht_mask.build_maskmap(radius)
+    cfht_mask.build_maskmap(outer_radius)
 
     #Get the pixel locations for the objects in CFHT catlog
     print("Building pixelmap for CFHT catalog")
@@ -116,15 +124,14 @@ def get_weight_ratios_cfht(lens_name, lens_catalog_file, cfht_catalog_file, cfht
 
     #Remove objects from the CFHT catalog that are masked
     print("Removing objects from CFHT catalog that are masked")
-    cfht_catalog.remove_masked(cfht_mask)
+    #cfht_catalog.remove_masked(cfht_mask)
 
 
     if weight == 'all':
         weights = load_all_weights()
     views = cfht_mask.get_views()
-    cfht_params.update({'internal': True})
+    cfht_params.update({'internal': True, 'aperture': aperture})
     field_params.update({'internal': False, 'center': lens_obj['center_coords']})
-
     field_weights = {key: weight.compute_weight(lens_catalog, field_params) for key, weight in weights.items()}
     ratios = {key: [] for key in weights.keys()}
     num_views = len(views)
@@ -145,9 +152,6 @@ def get_weight_ratios_cfht(lens_name, lens_catalog_file, cfht_catalog_file, cfht
             continue
         cfht_masked_cat = cfht_catalog.apply_mask(view, cfht_params)
         field_masked_cat = lens_catalog.apply_mask(view, field_params)
-
-
-
         cfht_weighted_counts = {key: weight.compute_weight(cfht_masked_cat, cfht_params) for key, weight in weights.items()}
         field_weighted_counts = {}
         for key, field_weight in field_weights.items():

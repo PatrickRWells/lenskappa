@@ -6,7 +6,10 @@ from copy import copy
 
 class catalog:
     
-    def __init__(self, cat, delimeter = ','):
+    def __init__(self, cat, delimeter = ',', verbose=False):
+        if verbose:
+            print("TESTING")
+            print(cat)
         if type(cat) == str:
             self._data = pd.read_csv(cat, delimeter)
         if type(cat) == pd.DataFrame:
@@ -31,7 +34,12 @@ class catalog:
             num = len(self._data)
 
             pix_values = mask.get_pixel_values(self._data['pix_x'], self._data['pix_y'])
-            is_masked = pix_values != 0
+            import matplotlib.pyplot as plt
+            plt.hist(pix_values, [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60])
+            plt.show()
+            is_masked = (pix_values != 0)
+            from collections import Counter
+            print(Counter(is_masked))
             num_removed = len(self._data[is_masked])
 
             self._data.drop(self._data[is_masked].index, inplace=True)
@@ -43,30 +51,42 @@ class catalog:
             print("ERRROR: Tried to apply a mask to a catalog but pixel positions of catalog objects have not been initialized!")
     
     def apply_mask(self, mask, params, plot=False):
-        if self._masked_removed and self._pixmap_initialized and params['internal']:
+        if self._pixmap_initialized and params['internal']:
             return self._get_region(mask, params, plot)
-        
-
+    
         from copy import copy
-        if not 'pix_x' in self.columns:
+
+        if (not hasattr(self, '_wcs')) or (not 'pix_x' in self.columns):
             self._init_pixelmap(mask, params)
 
         shape = self._wcs.array_shape
 
         x_rounded, y_rounded = round(self._data['pix_x']).astype(int), round(self._data['pix_y']).astype(int)
-
         in_frame = (x_rounded >= 0) & (y_rounded >= 0) & (x_rounded < shape[0] - 1) & (y_rounded < shape[1] - 1)
         return_cat = copy(self._data[in_frame])
         not_masked = mask.get_vals(x_rounded[in_frame], y_rounded[in_frame]) == 0
         if plot:
+            print("PLOTTING 2")
             self._plot_mask_withcat(mask, return_cat, not_masked)
         return return_cat[not_masked]
     
+    def apply_aperture(self, inner_radius, outer_radius):
+        if 'dist' not in self._data.keys():
+            print("ERROR: Trying to remove objects based on distances, but catalog does not have them")
+            return
+        
+        mask = (self._data['dist'] < outer_radius) & (self._data['dist'] > inner_radius)
+        self._data.drop(self._data[~mask].index, inplace=True)
+    
     def _get_region(self, mask, params, plot):
         center, radius = mask.get_view_center()
+        inner_radius = params['aperture']['inner']
         data_copy = copy(self._data)
         data_copy['dist'] = self._coords.separation(center).to(u.arcsec)
-        data_copy.drop(data_copy[data_copy['dist'] >= radius].index, inplace=True)
+        mask = (data_copy['dist'] <= radius) & (data_copy['dist'] >= inner_radius) 
+        data_copy.drop(data_copy[~mask].index, inplace=True)
+        if len(data_copy) == 0:
+            print(center)
         return data_copy
 
     def get_macro_pixelmap(self, mask):

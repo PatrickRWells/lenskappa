@@ -67,7 +67,7 @@ class Lens(dict):
 
     def _parse_units(self):
         """
-        Internal function.
+        Internal function.o
         Parases non-coordinate units found in lens configuration files and returns the appropriate
         object from astropy.units
         """

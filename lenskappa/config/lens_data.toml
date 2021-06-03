@@ -60,7 +60,7 @@
     photoz = 'bpz'
     #photoz = 'bpzeazy'
     pixnr = 915
-    pixlens = 0.2625 
+    pixlens = 0.2625
     pixlens_unit = 'arcsec'
     center_coords = '20:33:42.080 -47:23:43.00'
     center_coords_units = ['hourangle', 'deg']
@@ -81,6 +81,7 @@
     center_coord_frame = 'fk5'
 
 [J0924]
+    image = '/Users/patrick/Documents/Current/Research/Observing/2021/deimos-01/imaging/J0924.fits'
     z_s = 1.523
     z_l = 0.393
     limmag = 23
@@ -94,3 +95,73 @@
     center_coords_units = ['deg', 'deg']
     center_coord_frame = 'fk5'
 
+[2M1134]
+    z_s = -1
+    z_l = -1
+    center_coords = '173.6688  -21.0563'
+    center_coords_units = ['deg', 'deg']
+    center_coord_frame = 'fk5'
+
+[J1251]
+    z_s = -1
+    z_l = -1
+    center_coords = '192.7815   29.5946'
+    center_coords_units = ['deg', 'deg']
+    center_coord_frame = 'fk5'
+    image = '/Users/patrick/Documents/Current/Research/Observing/2021/deimos-01/imaging/J1251.fits'
+
+[2M1310]
+    z_s = -1
+    z_l = -1
+    center_coords = '197.5835  -17.2494'
+    center_coords_units = ['deg', 'deg']
+    center_coord_frame = 'fk5'
+    image = '/Users/patrick/Documents/Current/Research/Observing/2021/deimos-01/imaging/2M1310.fits'
+
+[J1330]
+    z_s = -1
+    z_l = -1
+    center_coords = '202.5777   18.1758'
+    center_coords_units = ['deg', 'deg']
+    center_coord_frame = 'fk5'
+    image = '/Users/patrick/Documents/Current/Research/Observing/2021/deimos-01/imaging/J1330.fits'
+
+[J1433]
+    z_s = -1
+    z_l = -1
+    center_coords = '218.3450   60.1210'
+    center_coords_units = ['deg', 'deg']
+    center_coord_frame = 'fk5'
+    image = '/Users/patrick/Documents/Current/Research/Observing/2021/deimos-01/imaging/J1433.fits'
+
+[PSJ1606]
+    z_s = -1
+    z_l = -1
+    center_coords = '241.5009  -23.5561'
+    center_coords_units = ['deg', 'deg']
+    center_coord_frame = 'fk5'
+    image = '/Users/patrick/Documents/Current/Research/Observing/2021/deimos-01/imaging/PSJ1606.fits'
+
+
+[J1817]
+    z_s = -1
+    z_l = -1
+    image = '/Users/patrick/Documents/Current/Research/Observing/2021/deimos-01/imaging/J1817.fits'
+    center_coords = '274.3785   27.4945'
+    center_coords_units = ['deg', 'deg']
+    center_coord_frame = 'fk5'
+
+[J2145]
+    z_s = -1
+    z_l = -1
+    center_coords = '326.2713   63.7614'
+    center_coords_units = ['deg', 'deg']
+    center_coord_frame = 'fk5'
+    image = '/Users/patrick/Documents/Current/Research/Observing/2021/deimos-01/imaging/J2145.fits'
+
+[J2017]
+    z_s = -1
+    z_l = -1
+    center_coords = '304.45440   62.07870'
+    center_coords_units = ['deg', 'deg']
+    center_coord_frame = 'fk5'

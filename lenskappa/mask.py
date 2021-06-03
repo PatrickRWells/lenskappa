@@ -1,12 +1,19 @@
 from astropy.io import fits
+from astropy.io.fits import column
 import astropy.units as u
 from astropy.wcs import wcs, utils
 from astropy.coordinates import SkyCoord
 import numpy as np
 from copy import copy
+import re
+import pandas as pd
+import regions
+
+class mask:
+    pass
 
 
-class CFHTMask:
+class CFHTMask(mask):
     """
     Class for managing CFHT masks
     Includes logic to break mask into individual fields
@@ -147,3 +154,98 @@ class maskview:
     def is_flipped(self):
         return self._mask_header['CDELT1'] < 0
 
+
+class HSCMask(mask):
+    
+    def __init__(self, file):
+        if not file.endswith('.reg'):
+            print("Error: expected a region file for a HSC Mask")
+            return None
+        labels = ['shape', 'ra', 'dec', 'ax1', 'ax2', 'angle']
+        regions_list = []
+        print("Reading in region file...")
+        with open(file) as f:
+            for line in f:
+                if line.startswith('circle'):
+                    series = self._parse_circle(line)
+                    regions_list.append(series)
+                if line.startswith('box'):
+                    series = self._parse_box(line)
+                    regions_list.append(series)
+        self._regdata = pd.DataFrame(regions_list, columns = labels)
+        self._coords = SkyCoord(self._regdata['ra'], self._regdata['dec'], unit="deg")
+        print("done")
+    def _parse_circle(self, line):
+        shape = line.split("#")[0].strip()
+        nums = [float(num) for num in re.findall(r'\d+\.*\d*', line)]
+        center = (nums[0], nums[1])
+        radius = nums[2]*u.degree
+        return ["circle", *center, radius, radius, 0]
+
+
+
+    def _parse_box(self, line):
+        shape = line.split("#")[0].strip()
+        nums = [float(num) for num in re.findall(r'\d+\.*\d*', line)]
+        center = (nums[0], nums[1])
+        r1, r2 = nums[2]*u.degree, nums[3]*u.deg
+        angle = nums[4]
+        if angle != 0:
+            print("ANGLE: {}".format(angle))
+        return ["box", *center, r1, r2, angle]
+
+    def get_circular_view(self, center, radius=120*u.arcsec):
+        distances = self._coords.separation(center).to(u.arcsec)
+        in_view = self._coords.separation(center).to(u.arcsec) <= 2*radius
+        pixscale = 0.5*u.arcsec
+        num_pix = int(4*radius/pixscale)
+        wcs_header = {
+            'CTYPE1': 'RA---TAN',
+            'CUNIT1': 'degree',
+            'CDELT1': -pixscale.to(u.degree).value,
+            'CRPIX1': num_pix/2,
+            'CRVAL1': center.ra.degree,
+            'NAXIS1': num_pix,
+            'CTYPE2': 'DEC--TAN',
+            'CUNIT2': 'degree',
+            'CDELT2': pixscale.to(u.degree).value,
+            'CRPIX2': num_pix/2,
+            'CRVAL2': center.dec.degree,
+            'NAXIS2': num_pix
+        }
+        wcs_temp = wcs.WCS(wcs_header)
+        pix_array = np.ndarray(shape=(num_pix, num_pix))
+        pix = self._build_pixelarray(in_view, wcs_temp, pix_array=pix_array, mask_center=center, mask_radius=radius)
+        import matplotlib.pyplot as plt
+        plt.imshow(pix, origin='lower', cmap='gray')
+        plt.show()
+
+    def _build_pixelarray(self,regmask, wcs_obj, pix_array, mask_center, mask_radius):
+        for index, shape_line in self._regdata[regmask].iterrows():
+            center_coord = SkyCoord(shape_line['ra'], shape_line['dec'], unit="deg")
+            if shape_line['shape'] == 'circle':
+                region_sky = regions.CircleSkyRegion(center_coord, shape_line['ax1'])
+                mask = region_sky.to_pixel(wcs_obj).to_mask('center')
+              
+                pix_array += mask.to_image(pix_array.shape)
+            if shape_line['shape'] == 'box':
+                region_sky = regions.RectangleSkyRegion(center_coord, shape_line['ax1'], shape_line['ax2'], shape_line['angle']*u.degree)
+                mask = region_sky.to_pixel(wcs_obj).to_mask('center')
+                pix_array += mask.to_image(pix_array.shape)
+
+        aperture = regions.CircleSkyRegion(mask_center, mask_radius)
+        aperture_mask = aperture.to_pixel(wcs_obj).to_mask('center').to_image(pix_array.shape) == 0.
+        pix_array[aperture_mask] = 1
+        pix_array[pix_array != 0] = 8192
+        shape = pix_array.shape
+        left_bound, right_bound = int(pix_array.shape[0]/2 - pix_array.shape[0]/4), int(pix_array.shape[0]/2 + pix_array.shape[0]/4), 
+        lower_bound, upper_bound = int(pix_array.shape[1]/2 - pix_array.shape[1]/4), int(pix_array.shape[1]/2 + pix_array.shape[1]/4) 
+
+        pix_array = pix_array[left_bound:right_bound, lower_bound:upper_bound]
+        return pix_array
+
+if __name__ == "__main__":
+    regfile = "/Users/patrick/Documents/Current/Research/LensEnv/HSC/HSC-SSP_brightStarMask_Arcturus/reg/tracts/BrightStarMask-9617-HSC-I.reg"
+    center = SkyCoord(218.9928211, 0.7540274, unit="deg")
+    hsc = HSCMask(regfile)
+    hsc.get_circular_view(center, radius=180*u.arcsec)

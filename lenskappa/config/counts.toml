@@ -50,5 +50,5 @@ condition = 0
 params = ['cat.m_gal', 'cat.r']
 condition = 0
 [convergencehalo]
-params = ['cat.m_halo', 'cat.r']
+params = ['cat.m_gal', 'cat.r', 'cat.z_gal']
 condition = 0

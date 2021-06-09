@@ -2,22 +2,27 @@ import pandas as pd
 import numpy as np
 from astropy import wcs, coordinates, units
 import astropy.units as u
+from shapely import geometry
 from copy import copy
 
 class catalog:
     
-    def __init__(self, cat, delimeter = ',', verbose=False):
-        if verbose:
-            print("TESTING")
-            print(cat)
-        if type(cat) == str:
-            self._data = pd.read_csv(cat, delimeter)
-        if type(cat) == pd.DataFrame:
-            self._data = cat
-        self.columns = self._data.columns
-        self._params = []
-        self._pixmap_initialized = False
-        self._masked_removed = False
+    def __init__(self, cat):
+        if cat is not pd.DataFrame:
+            print("Error: catalog expects a dataframe object")
+            return
+        self._data = cat
+    
+    def frame(self, frame):
+        if not hasattr(self, "points"):
+            self.init_points()
+    
+    def init_points(self):
+        x = self._data.ra
+        y = self._data.dec
+        self._points = [geometry.Point(x_i, y[idx]) for idx, x_i in x]
+
+
         
     def __str__(self):
         return self._data.__str__()

@@ -71,7 +71,15 @@ class weight:
             except:
                 print("Error: unable to find value for parameter {} required to calculate weight {}".format(parname, self._name))
                 return
-        return self._weightfn(catalog, self._parmap)
+        masks = np.array([True]*len(catalog))
+        for par_name, col_name in self._parmap.items():
+            try:
+                mask = ~pd.isna(catalog[col_name])
+                masks = masks & mask
+            except:
+                pass
+
+        return self._weightfn(catalog[masks], self._parmap)
 
 def load_all_weights():
     import os

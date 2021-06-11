@@ -1,6 +1,8 @@
 from astropy.coordinates.solar_system import get_moon
 from erfa.core import aper
 from numpy.core.numeric import full
+from numpy.lib.function_base import cov
+from shapely.geometry import polygon
 from lenskappa.mask import mask
 import re
 import regions
@@ -15,11 +17,33 @@ import os
 import sys
 import time
 import matplotlib.pyplot as plt
+import multiprocessing
+
 
 
 class hsc_catalog:
-    def __init__(self, file):
+    def __init__(self, file, params ={}):
         self._data = pd.read_csv(file)
+        for key in params.keys():
+            filter_type = key.split('_')[0]
+            filter_col = '_'.join([filter_type, 'col'])
+
+            if 'max' in key:
+                max_val = params['_'.join([filter_type, 'max'])]
+                filter_mask = self._data[filter_col] > max_val
+                self._data.drop(self._data[filter_mask].index, inplace=True)
+                print("Removed items based where {} is above {}".format(filter_col, max_val))
+
+            if 'min' in key:
+                min_val = params['_'.join([filter_type, 'min'])]
+                filter_mask = self._data[filter_col] < min_val
+                self._data.drop(self._data[filter_mask].index, inplace=True)
+                print("Removed items based where {} is below {}".format(filter_col, min_val))
+
+        if 'z_filter' in params.keys():
+            z_col = params['z_col']
+            z_mask = self._data[z_col] > params['z_filter']
+            self._data.drop(self._data[z_mask].index, inplace=True)
         print("Splitting data...")
         self.subsets = {id: self._data[self._data.tract == id] for id in self._data.tract.unique()}
         self._patch_data = {}
@@ -29,12 +53,12 @@ class hsc_catalog:
         frames = []
         for id, data in tracts.items():
             patch_ints = [self._patch_tuple_to_int(key) for key in data['subregions'].keys()]
-            for key in patch_ints:
-                if key not in self._patch_data.keys():
-                    mask = (self.subsets[id].patch).isin(patch_ints)
-                    self._patch_data.update({key: self.subsets[id][mask]})
-                frames.append(self._patch_data[key])
-        return pd.concat(frames)
+            mask = (self.subsets[id].patch).isin(patch_ints)
+            frames.append(self.subsets[id][mask])
+        frame = pd.concat(frames)
+
+        frame = frame.groupby(frame.index).first()
+        return frame
 
     def _patch_tuple_to_int(self, patch_tuple):
         if patch_tuple[0] == 0:
@@ -54,34 +78,103 @@ class field:
         self._tiled = False
     def get_inside(self, center, aperture):
         #Given a circular aperture, determine which subregions it intersects with
-        subregions = {}
+        top_subregions = {}
         aperture_deg = aperture.to(u.deg).value
         circle_center = geometry.point.Point(center.ra.degree, center.dec.degree)
         aperture_poly = circle_center.buffer(aperture_deg)
         for id, region in self._subregions.items():
             inside = region.get_inside(aperture_poly)
             if inside or inside is None:
-                subregions.update({id: inside})
-        return subregions
+                top_subregions.update({id: inside})
+        return top_subregions
     
+    def get_all_weight_ratios(self,ext_catalog = None, ext_catalog_center = None, weights = None, hsc_params = {}, ext_params = {}, threads = 1):
+      
+        if threads == 1:
+            return_weights = {weight: [] for weight in weights.keys()}
+            #for i in range(len(self._x_tiles)):
+            for i in range(len(self._x_tiles)):
+                #for j in range(len(self._y_tiles)):
+                for j in range(len(self._y_tiles)):
+                    print("{}, {}".format(i, j))
+                    weight_vals = self.get_weight_ratios(i, j, ext_catalog, ext_catalog_center, weights, hsc_params, ext_params)
+                    for name, val in weight_vals.items():
+                        return_weights[name].append(val)
+            return return_weights
+        else:
+            return self._get_all_weight_ratios_delegate(ext_catalog, ext_catalog_center, weights, hsc_params, ext_params, threads)
+    
+    def _get_all_weight_ratios_delegate(self, ext_catalog = None, ext_catalog_center = None, weights = None, hsc_params = {}, ext_params = {}, threads = 2):
+        print("Threading...")
+        num_x = len(self._x_tiles)
+        numperthread = math.floor(num_x/(threads - 1))
+        processes = []
+        q = multiprocessing.Queue()
+        for i in range(threads - 1):
+            if i == threads - 1:
+                range_ = [numperthread*i, num_x]
+            else:
+                range_ = [numperthread*i, numperthread*(i+1)]
+
+            process = multiprocessing.Process(target=self._get_weight_ratios_range, args=[range_, ext_catalog, ext_catalog_center, weights, hsc_params, ext_params, q])
+            process.start()
+            processes.append(process)
+        for process in processes:
+            process.join()
+        
+        return_values = [q.get() for process in processes]
+        return pd.concat(return_values, ignore_index=True)
+
+    def _get_weight_ratios_range(self, x_range = [], ext_catalog = None, ext_catalog_center = None, weights = None, hsc_params = {}, ext_params = {}, queue = None):
+        return_weights = {weight: [] for weight in weights.keys()}
+
+        if x_range:
+            for x in range(x_range[0], x_range[1]):
+                for y in range(len(self._y_tiles)):
+                    print("{}, {}".format(x,y))
+                    weight_vals = self.get_weight_ratios(x, y, ext_catalog, ext_catalog_center, weights, hsc_params, ext_params)
+                    for name, val in weight_vals.items():
+                        return_weights[name].append(val)
+        
+        outframe = pd.DataFrame(return_weights)
+        if queue is not None:
+            queue.put(outframe)
+        else:
+            return outframe
+                        
+                        
+
+
+
     def get_weight_ratios(self, x, y, ext_catalog = None, ext_catalog_center = None, weights = None, hsc_params = {}, ext_params = {}):
         regmask = self.get_region_mask(x,y)
         center = SkyCoord(self._x_tiles[x], self._y_tiles[y], unit="deg")
         subregions = self.get_inside(center, self._aperture_size)
         local_cat = self._catalog.get_objects_within_patches(subregions)
-        
         cat = self.apply_region_mask(center, self._aperture_size, regmask, local_cat, get_dist=True)
 
         new_ext_cat = ext_catalog.copy(deep=True)
+
         dra, ddec = center.ra.degree - ext_catalog_center.ra.degree, center.dec.degree - ext_catalog_center.dec.degree
         
         new_ext_cat.ra += dra
         new_ext_cat.dec += ddec
-
         ext_cat_masked = self.apply_region_mask(center, self._aperture_size, regmask, new_ext_cat)
-
+        
+        if len(cat) == 0:
+            return {weight_name: -1.0 for weight_name in weights.keys()}
         field_weights = {key: weight.compute_weight(ext_cat_masked, ext_params) for key, weight in weights.items()}
         control_weights = {key: weight.compute_weight(cat, hsc_params) for key, weight in weights.items()}
+        weight_ratios = {key: 0.0 for key in weights.keys()}
+        for key, val in field_weights.items():
+            try: 
+                val_float = float(val)
+                weight_ratios[key] = val_float/float(control_weights[key])
+            except:
+                field_val = sum(val)
+                control_val = sum(control_weights[key])
+                weight_ratios[key] = field_val/control_val
+        return weight_ratios
 
     def get_region_mask(self, x, y):
         if not self._tiled:
@@ -99,12 +192,14 @@ class field:
 
         in_aperture_mask = (seps <= aperture)
         outcat = catalog.copy(deep=True)
-        print(outcat)
         outcat.drop(outcat[~in_aperture_mask].index, inplace=True)
-        print(outcat)
+        if len(outcat) == 0:
+            return outcat
+        #print("Removed {} of {} objects because they were too far away...".format(len(catalog) - len(outcat), len(catalog)))
         obj_point_coords = list(zip(outcat.ra, outcat.dec))
         obj_points = [geometry.Point(point_coord) for point_coord in obj_point_coords]
         covered_mask = np.array([False]*len(outcat))
+        import matplotlib.pyplot as plt
         for _, mask_object in regmask.iterrows():
             if mask_object['shape'] == 'circle':
                 circle_center = geometry.point.Point(mask_object.ra, mask_object.dec)
@@ -118,8 +213,8 @@ class field:
                 object_polygon = geometry.Polygon(points)
             within = [point.within(object_polygon) for point in obj_points]
             covered_mask = covered_mask | np.array(within)
-        
-        return outcat[covered_mask]
+        inside_top_region = [point.within(self._region) for point in obj_points]
+        return outcat[(~covered_mask) & inside_top_region]
 
     def tile(self, aperture_size = 120 * u.arcmin):
         #Tiles a region with the minimum number of aperture_size radius
@@ -138,6 +233,7 @@ class field:
         self._y_tiles = y_coords
         self._aperture_size = aperture_size
         self._tiled = True
+        print("Split region into {} tiles ({} by {})".format(num_x*num_y, num_x, num_y))
 
     def load_bright_masks(self, path, type = 'HSC'):
         self._mask_path = path
@@ -297,34 +393,4 @@ def read_hsc_tracts(tractfile):
     return tracts
             
 if __name__ == '__main__':
-    from lenskappa.weighting import load_all_weights
-    field_pars = {'map': {'m_gal': 'stellar_mass', 'z_gal': 'photoz_best', 'r': 'dist'}, 'z_s': 1.523}
-    hsc_pars = {'map': {'m_gal': 'demp_sm', 'z_gal': 'demp_photoz_best', 'r': 'dist'}, 'z_s': 1.523}
-
-    weights = load_all_weights()
-    reg_points = [(40, -6.5), (29.5, -6.5), (29.5, -2), (40, -2)]
-    sky_region = geometry.Polygon(reg_points)
-    aperture = 120 * u.arcsec
-    print("Loading catalog data...")
-    cat = hsc_catalog("/Users/patrick/Documents/Current/Research/LensEnv/HSC/catalogs/W2.csv")
-    lens_cat = pd.read_csv("/Users/patrick/Documents/Current/Research/LensEnv/0924/weighting/catalog.csv")
-    lens_center = SkyCoord(141.23246, 2.32358, unit="deg")
-    lens_cat['dist'] = lens_center.separation(SkyCoord(lens_cat.ra, lens_cat.dec, unit="deg")).to(u.arcsec)
-
-    print("Loading tract data..")
-    tracts = read_hsc_tracts('tracts_patches_W-w02.txt')
-    sky = field(sky_region, tracts, cat)
-    print("Tiling sky")
-    sky.tile(aperture)
-    print("Applying bright star masks...")
-    sky.load_bright_masks("/Users/patrick/Documents/Current/Research/LensEnv/HSC/HSC-SSP_brightStarMask_Arcturus/reg/patches", type='HSC')
-    print("done")
-    center = SkyCoord(35.0573440373 , -4.55841069495, unit="deg")
-    outcat = sky.get_weight_ratios(50,50, lens_cat, lens_center, weights=weights, hsc_params = hsc_pars, ext_params = field_pars)
-
-    exit()
-
-    inside_tracts = sky.get_inside(center, aperture)
-    print("Tiling sky...")
-
-    print("Mapping tracts and patches to field...")
+    pass

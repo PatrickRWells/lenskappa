@@ -134,13 +134,8 @@ def compute_halomass(cat, data, islog=True):
     z_gal = cat[data['z_gal']]
     m_gal = cat[data['m_gal']]
     halo_masses = np.zeros(len(m_gal))
-    print(z_gal)
-    print(m_gal)
     i = 0
     for index, z in z_gal.iteritems():
-        print("HI")
-        print(z)
-        print(m_gal[index])
         if z <= 1:
             a = 1/(1+z)
 

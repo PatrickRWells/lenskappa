@@ -1,7 +1,4 @@
 from astropy.coordinates.solar_system import get_moon
-from erfa.core import aper
-from numpy.core.numeric import full
-from numpy.lib.function_base import cov
 from shapely.geometry import polygon
 from lenskappa.mask import mask
 import re

@@ -15,6 +15,39 @@ import os
 import sys
 import time
 import matplotlib.pyplot as plt
+import functools
+from copy import copy
+import logging
+import toml
+
+class hsc_region_parser:
+    def __init__(self, f):
+        self._f = f
+    def __call__(self, instance, subregion_name, *args, **kwargs):
+        print("Changing subregion name")
+        new_subregion_name = self._parse_subregion(subregion_name)
+        self._f(instance, new_subregion_name, *args, **kwargs)
+    def _parse_subregion(self, subregion_name):
+        if type(subregion_name) == tuple:
+            return self._parse_patch_tuple_int(subregion_name)
+        elif type(subregion_name) == int:
+            return subregion_name
+        else:
+            logging.warning("Error: Tried to parse HSC region name. Expected a tupe or an int, got {}".format(subregion_name))
+            return subregion_name
+
+    def __get__(self, instance, owner):
+        return functools.partial(self, instance) 
+
+
+def hsc_config(f):
+    def wrapper(self, *args, **kwargs):
+        config = toml.load("config/hsc.toml")
+        kwargs.update({"config": config})
+        return f(self, *args, **kwargs)
+    return wrapper
+        
+
 
 
 class hsc_catalog:

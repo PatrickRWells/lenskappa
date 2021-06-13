@@ -1,11 +1,89 @@
+from lenskappa.hsc import hsc_config, hsc_region_parser, hsc_config
 import pandas as pd
 import numpy as np
 from astropy import wcs, coordinates, units
 import astropy.units as u
 from shapely import geometry
 from copy import copy
+import logging
+import toml
 
-class catalog:
+class Catalog:
+    def __init__(self, cat, config = None, *args, **kwargs):
+        self._cat = cat
+        self._config = config
+        print(self._config)
+        self._init_cat(*args, **kwargs)
+    
+    def _init_cat(self, *args, **kwargs):
+        if self._load_cat(*args, **kwargs):
+            self._param_map = {}
+            for arg in ['ra', 'dec', 'ra_unit', 'dec_unit']:
+                param = self._get_single_parameter_map(arg, *args, **kwargs)
+                self._param_map.update({arg: param})
+            
+
+    def _get_single_parameter_map(self, attribute, *args, **kwargs):
+        """
+        Searches input kwargs for a key-value pair where the key is the first argument
+        Otherwise returns the name if it can be found
+        """
+        try:
+            col_name = kwargs[attribute]
+            return col_name
+        except:
+            if attribute in self._config.keys():
+                return self._config[attribute]
+            if attribute in self._cat.columns:
+                return attribute
+            else:
+                logging.warning("Unable to find column for catalog parameter {}".format(attribute))
+                return None
+
+    def add_subregion(self, subregion_name, subregion_polygon, *args, **kwargs):
+        if not hasattr(self, "_subregions"):
+            self._subregions = {}
+        self._subregions.update({subregion_name: subregion_polygon})  
+
+    def filter_catalog_by_subregion(self, subregion_name, subregion_polygon):
+        try: catpoints = self._catpoints
+        except: self._init_catpoints()
+    
+    def _init_catpoints(self):
+        ras = self._cat[self._param_map['ra']]
+        decs = self._cat[self._param_map['dec']]
+
+
+    def _load_cat(self, *args, **kwargs):
+        """
+        Loads in a catalog passed to the consructor
+        Currently only works with pd.DataFrame and paths to CSV files
+        """
+        if type(self._cat) == pd.DataFrame:
+            pass
+        elif type(self._cat) == str:
+            try:
+                self._file = copy(self._cat)
+                logging.info("Loading file {}".format(self._file))
+                self._cat = pd.read_clipboard(self._cat)
+                return True
+            except:
+                logging.error("Unable to load catalog."\
+                              "Accepted objects are pandas dataframes and paths to CSV files")
+                return False
+    
+
+class HscCatalog(Catalog):
+    def __init__(self, cat, *args, **kwargs):
+        config = toml.load("config/hsc.toml")
+        super(HscCatalog, self).__init__(cat, config, *args, **kwargs)
+    
+    @hsc_region_parser
+    def add_subregion(self, subregion_name, subregion_polygon, *args, **kwargs):
+        return super(HscCatalog, self).add_subregion(subregion_name, subregion_polygon, *args, **kwargs)
+
+
+class catalog_old:
     
     def __init__(self, cat):
         if cat is not pd.DataFrame:
@@ -152,4 +230,9 @@ class catalog:
         plt.scatter(cat['pix_x'], cat['pix_y'], c=c, s=5)
         plt.show()
 
-        
+
+
+if __name__ == "__main__":
+
+    cat = HscCatalog("/Users/patrick/Documents/Current/Research/LensEnv/0924/weighting/lens_cat.csv")
+    cat.add_subregion("Test", "Test")

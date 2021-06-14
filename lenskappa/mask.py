@@ -8,9 +8,25 @@ from copy import copy
 import re
 import pandas as pd
 import regions
+from abc import ABC, abstractmethod
 
-class mask:
-    pass
+class mask(ABC):
+    def __init__(self, maskfiles):
+        self._maskfiles = maskfiles
+        self._load_maskfiles()
+
+    @abstractmethod
+    def _load_maskfiles(self):
+        return
+
+    def _get_maskregion(self):
+        pass
+
+class regmask(mask):
+    
+    def _load_maskfiles(self):
+        print(self._maskfiles)
+        print("HI!")
 
 
 class CFHTMask(mask):
@@ -245,7 +261,4 @@ class HSCMask(mask):
         return pix_array
 
 if __name__ == "__main__":
-    regfile = "/Users/patrick/Documents/Current/Research/LensEnv/HSC/HSC-SSP_brightStarMask_Arcturus/reg/tracts/BrightStarMask-9617-HSC-I.reg"
-    center = SkyCoord(218.9928211, 0.7540274, unit="deg")
-    hsc = HSCMask(regfile)
-    hsc.get_circular_view(center, radius=180*u.arcsec)
+    mask = regmask("test")

@@ -1,4 +1,3 @@
-from lenskappa.hsc import hsc_config, hsc_region_parser, hsc_config
 import pandas as pd
 import numpy as np
 from astropy import wcs, coordinates, units
@@ -7,80 +6,68 @@ from shapely import geometry
 from copy import copy
 import logging
 import toml
+from lenskappa import base_config
 
 class Catalog:
-    def __init__(self, cat, config = None, *args, **kwargs):
+
+    def __init__(self, cat, param_map = {}, *args, **kwargs):
         self._cat = cat
-        self._config = config
-        print(self._config)
+        self._param_map = param_map
+        #self._config = base_config.get_submodule_config(Catalog)
         self._init_cat(*args, **kwargs)
     
-    def _init_cat(self, *args, **kwargs):
-        if self._load_cat(*args, **kwargs):
-            self._param_map = {}
-            for arg in ['ra', 'dec', 'ra_unit', 'dec_unit']:
-                param = self._get_single_parameter_map(arg, *args, **kwargs)
-                self._param_map.update({arg: param})
-            
+    def __getitem__(self, key):
+        """
+        Allows for masking as with a usual dataframe
+        """
+        return self._cat[key]
 
-    def _get_single_parameter_map(self, attribute, *args, **kwargs):
+    def __setitem__(self, key, data):
         """
-        Searches input kwargs for a key-value pair where the key is the first argument
-        Otherwise returns the name if it can be found
+        Allows for setting values as with a usual dataframe
         """
+        self._cat[key] = data
+    
+    def __len__(self):
+        """
+        Returns the length of the underlying data
+        """
+        return len(self._cat)
+    
+    @classmethod
+    def read_csv(cls, file, config = None, *args, **kwargs):
+        """Read in a file from a CSV
+        Arguments:
+            - file (str): path to CSV file
+            - config (dict): dictionary of config parameters
+        Rerturns:
+            catalog.Catalog
+        """
+        logging.info("Reading in file {}".format(file))
         try:
-            col_name = kwargs[attribute]
-            return col_name
+            cat = pd.read_csv(file)
+            return cls(cat, config, *args, **kwargs)
         except:
-            if attribute in self._config.keys():
-                return self._config[attribute]
-            if attribute in self._cat.columns:
-                return attribute
-            else:
-                logging.warning("Unable to find column for catalog parameter {}".format(attribute))
-                return None
+            logging.error("Pandas could not read file {}".format(file))
+            return None
+    
+
+    def _init_cat(self, *args, **kwargs):
+        pass
 
     def add_subregion(self, subregion_name, subregion_polygon, *args, **kwargs):
         if not hasattr(self, "_subregions"):
             self._subregions = {}
         self._subregions.update({subregion_name: subregion_polygon})  
 
-    def filter_catalog_by_subregion(self, subregion_name, subregion_polygon):
+    def filter_catalog_by_subregion(self, subregion_name):
         try: catpoints = self._catpoints
         except: self._init_catpoints()
     
     def _init_catpoints(self):
-        ras = self._cat[self._param_map['ra']]
-        decs = self._cat[self._param_map['dec']]
-
-
-    def _load_cat(self, *args, **kwargs):
-        """
-        Loads in a catalog passed to the consructor
-        Currently only works with pd.DataFrame and paths to CSV files
-        """
-        if type(self._cat) == pd.DataFrame:
-            pass
-        elif type(self._cat) == str:
-            try:
-                self._file = copy(self._cat)
-                logging.info("Loading file {}".format(self._file))
-                self._cat = pd.read_clipboard(self._cat)
-                return True
-            except:
-                logging.error("Unable to load catalog."\
-                              "Accepted objects are pandas dataframes and paths to CSV files")
-                return False
-    
-
-class HscCatalog(Catalog):
-    def __init__(self, cat, *args, **kwargs):
-        config = toml.load("config/hsc.toml")
-        super(HscCatalog, self).__init__(cat, config, *args, **kwargs)
-    
-    @hsc_region_parser
-    def add_subregion(self, subregion_name, subregion_polygon, *args, **kwargs):
-        return super(HscCatalog, self).add_subregion(subregion_name, subregion_polygon, *args, **kwargs)
+        ras = self._cat[self._param_map['ra']].to(u.deg)
+        decs = self._cat[self._param_map['dec']].to(u.deg)
+        
 
 
 class catalog_old:
@@ -233,6 +220,6 @@ class catalog_old:
 
 
 if __name__ == "__main__":
-
-    cat = HscCatalog("/Users/patrick/Documents/Current/Research/LensEnv/0924/weighting/lens_cat.csv")
-    cat.add_subregion("Test", "Test")
+    pd.read_csv
+    cat = Catalog.read_csv("/Users/patrick/Documents/Current/Research/LensEnv/0924/weighting/lens_cat.csv")
+    mask = [False]*len(cat)

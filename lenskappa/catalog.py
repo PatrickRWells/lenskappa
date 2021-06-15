@@ -1,3 +1,4 @@
+from astropy.coordinates.sky_coordinate import SkyCoord
 import pandas as pd
 import numpy as np
 from astropy import wcs, coordinates, units
@@ -5,16 +6,20 @@ import astropy.units as u
 from shapely import geometry
 from copy import copy
 import logging
+from shapely.geometry import geo
 import toml
 from lenskappa import base_config
+from abc import ABCMeta, abstractmethod
 
-class Catalog:
 
-    def __init__(self, cat, param_map = {}, *args, **kwargs):
+
+
+class Catalog(metaclass=ABCMeta):
+
+    def __init__(self, cat, *args, **kwargs):
         self._cat = cat
-        self._param_map = param_map
-        #self._config = base_config.get_submodule_config(Catalog)
-        self._init_cat(*args, **kwargs)
+        self._needed_parameter_types = {}
+        self._parmap = {}
     
     def __getitem__(self, key):
         """
@@ -34,6 +39,41 @@ class Catalog:
         """
         return len(self._cat)
     
+    def __str__(self):
+        return self._cat.__str__()
+
+    @staticmethod
+    def require_validation(pars):
+        """
+        Decorator to ensure a particular set of parameters
+        Have been validate against the input catalog
+        eg:
+        @Catalog.require_validation(['x', 'y'])
+        def func(self, *args, **kwargs)
+
+        This would ensure that the parameters x, and y have been mapped
+        to the appropriate catalog columns and their types are valid
+
+        """
+        def wrapper(function):
+            def check_validation(self, *args, **kwargs):
+                try:
+                    checkvalid = self._valid
+                except:
+                    logging.error("Catalog parameters have not been validated!")
+                    return None
+                
+                isvalid = [checkvalid[name] for name in pars]
+                if np.all(isvalid):
+                    return function(self, *args, **kwargs)
+                else:
+                    logging.error("Catalog parameter(s) {} are not valid".format([par for index, par in enumerate(pars) if not isvalid[index]]))
+        
+
+            return check_validation
+        return wrapper
+
+
     @classmethod
     def read_csv(cls, file, config = None, *args, **kwargs):
         """Read in a file from a CSV
@@ -46,28 +86,129 @@ class Catalog:
         logging.info("Reading in file {}".format(file))
         try:
             cat = pd.read_csv(file)
-            return cls(cat, config, *args, **kwargs)
+            return cls(cat, *args, **kwargs)
         except:
             logging.error("Pandas could not read file {}".format(file))
             return None
     
+    def load_params(self, input_map, *args, **kwargs):
+        """
+        Used for marking catalog columns with standard labels
+        e.g. The code expects columns "ra" and "dec", while 
+        the catalog is labeled with "RaMean" and "DecMean"
 
-    def _init_cat(self, *args, **kwargs):
+        Parameters:
+            input_map {str: str} - key-value pairs where the key
+                is the standard column name and the value is the
+                actual column name.
+        """
+
+
+
+        try:
+            parmap = self._parmap
+        except:
+            self._parmap = {}
+        
+        for par, parmap in self._parmap.items():
+            try: 
+                input_parmap = input_map[par]
+                self._parmap.update({par: input_parmap})
+            except:
+                logging.warning("No rename found for parameter {}, defaulting to {}".format(par, parmap))
+        self._validate_parmap()
+    
+    def _validate_parmap(self):
+        """
+        Checks to make sure that all necessary parameters are present
+        In the catalog and the values are of the expected type.
+        Note: Currently checks for type by attempting to cast the column as
+        the expected type. This should handle problems like getting a
+        np.float instead of float, but may have unintended side effects
+        """
+        self._valid = {}
+
+        for par, partype in self._needed_parameter_types.items():
+
+            single_parmap = self._parmap[par]
+            try:
+                col = self._cat[single_parmap]
+            except:
+                logging.warning("Unable to find column {} in data".format(single_parmap))
+                self._valid.update({par: False})
+                continue
+            
+            try:
+                coldata = col.astype(partype)
+                self._valid.update({par : True})
+            except:
+                logging.error("Unable to cast column {} as type {}".format(single_parmap, partype))
+                self._valid.update({par : False})
+
+            
+
+    @abstractmethod
+    def add_subregion(self, *args, **kwargs):
         pass
 
-    def add_subregion(self, subregion_name, subregion_polygon, *args, **kwargs):
-        if not hasattr(self, "_subregions"):
-            self._subregions = {}
-        self._subregions.update({subregion_name: subregion_polygon})  
+    @abstractmethod
+    def filter_by_subregion(self, *args, **kwargs):
+        pass
 
-    def filter_catalog_by_subregion(self, subregion_name):
-        try: catpoints = self._catpoints
-        except: self._init_catpoints()
-    
-    def _init_catpoints(self):
-        ras = self._cat[self._param_map['ra']].to(u.deg)
-        decs = self._cat[self._param_map['dec']].to(u.deg)
+
+class Catalog2D(Catalog):
+    def __init__(self, cat, *args, **kwargs):
+        super().__init__(cat)
+        self._needed_parameter_types.update({'x': float, 'y': float})
+        self._points_initialized = False
+        self._subregions = {}
+
+
+
+    def add_subregion(self, name, polygon, *args, **kwargs):
+        """
+        Adds a subregion to the catalog
+        This is mostly just a convinient way of subdividing catalog data
+
+        params:
+            name <str>: Name for the subregion
+            polygon <shapely.geometry.Polygon>: Polygon defining the region
+
+        """
+        if type(polygon) == geometry.Polygon:
+            self._subregions.update({name: {'poly': polygon, 'points': [] } } )
+        else:
+            logging.error("Tried to add a subregion, but the region was not a polygon")
+            
         
+    @Catalog.require_validation(['x', 'y'])
+    def filter_by_subregion(self, name, *args, **kwargs):
+        if name not in self._subregions.keys():
+            logging.error("Subregion {} does not exist".format(name))
+            return
+
+        if not self._points_initialized:
+            self._init_points()
+        if not self._subregions[name]['points']:
+            self._init_subregion(name)
+    
+    def _init_points(self):
+        x = self._cat[self._parmap['x']]
+        y = self._cat[self._parmap['y']]
+        self._points = [geometry.Point(xy) for xy in list(zip(x,y))]
+
+    def _init_subregion(self, name):
+        pass
+
+class SkyCatalog2D(Catalog2D):
+
+    def __init__(self, cat, *args, **kwargs):
+        super().__init__(cat)
+        self._parmap.update({'x': 'ra', 'y': 'dec'})
+
+    def _init_points(self):
+        #Need to implement a version of this function that works with SkyCoords
+        #Since Astropy has utilities that take care of 3D corrections 
 
 
 class catalog_old:
@@ -86,7 +227,6 @@ class catalog_old:
         x = self._data.ra
         y = self._data.dec
         self._points = [geometry.Point(x_i, y[idx]) for idx, x_i in x]
-
 
         
     def __str__(self):
@@ -220,6 +360,14 @@ class catalog_old:
 
 
 if __name__ == "__main__":
-    pd.read_csv
-    cat = Catalog.read_csv("/Users/patrick/Documents/Current/Research/LensEnv/0924/weighting/lens_cat.csv")
-    mask = [False]*len(cat)
+    lens_coord = SkyCoord(141.23246, 2.32358, unit="deg")
+    aperture = 120*u.arcsec
+
+    reg_mask = geometry.Point(lens_coord.ra.degree, lens_coord.dec.degree)
+    print(aperture.to(u.degree).value)
+    reg_mask.buffer(aperture.to(u.deg).value)
+
+    cat = SkyCatalog2D.read_csv('/Users/patrick/Documents/Current/Research/LensEnv/0924/weighting/lens_cat.csv')
+    cat.load_params({'x': 'ra', 'y': 'dec'})
+    cat.add_subregion("test", reg_mask)
+    cat.filter_by_subregion("test")

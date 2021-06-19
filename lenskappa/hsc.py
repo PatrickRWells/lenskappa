@@ -116,10 +116,13 @@ class field:
             process = multiprocessing.Process(target=self._get_weight_ratios_range, args=[range_, ext_catalog, ext_catalog_center, weights, hsc_params, ext_params, q])
             process.start()
             processes.append(process)
-        for process in processes:
+        for index, process in enumerate(processes):
+            print("Joining process {}".format(index))
             process.join()
-        
+        print("done joining processes")
         return_values = [q.get() for process in processes]
+        print("all return values!")
+        print(return_values)
         return pd.concat(return_values, ignore_index=True)
 
     def _get_weight_ratios_range(self, x_range = [], ext_catalog = None, ext_catalog_center = None, weights = None, hsc_params = {}, ext_params = {}, queue = None):
@@ -134,9 +137,11 @@ class field:
                         return_weights[name].append(val)
         
         outframe = pd.DataFrame(return_weights)
+        print("Finished getting weights in this process!")
         if queue is not None:
             queue.put(outframe)
         else:
+            print("Didn't get a queue!")
             return outframe
                         
                         

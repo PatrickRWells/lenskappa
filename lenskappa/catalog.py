@@ -112,8 +112,6 @@ class Catalog(metaclass=ABCMeta):
                 actual column name.
         """
 
-
-
         try:
             parmap = self._parmap
         except:
@@ -162,7 +160,10 @@ class Catalog(metaclass=ABCMeta):
     @abstractmethod
     def filter_by_subregion(self, *args, **kwargs):
         pass
-
+    
+    @abstractmethod
+    def get_objects_in_region(self, region):
+        pass
 
 class Catalog2D(Catalog):
     def __init__(self, cat, *args, **kwargs):
@@ -230,6 +231,13 @@ class Catalog2D(Catalog):
         final_len = len(self._cat[mask])
         logging.info("Region {} masks out {} objects".format(name, initial_len-final_len))
         self._subregions[name]['mask'] = mask
+    
+    def get_objects_in_region(self, region):
+        #Note, this is a very simple implementationt that will be inefficient for very large regions
+        #It is recommended that you override this for larger catalogs 
+        mask = np.array([region.contains(point) for point in self._points])
+        return self[mask]
+        
 
 
 class SkyCatalog2D(Catalog2D):

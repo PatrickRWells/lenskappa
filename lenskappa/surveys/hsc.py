@@ -3,9 +3,6 @@ import shapely
 from lenskappa import region
 from lenskappa.surveys.survey import Survey
 from lenskappa.region import SkyRegion
-from astropy.coordinates.solar_system import get_moon
-from erfa.core import aper
-from numpy.core.numeric import full
 import re
 from astropy.coordinates import SkyCoord
 from astropy import wcs
@@ -16,7 +13,6 @@ import numpy as np
 import math
 import os
 import time
-import matplotlib.pyplot as plt
 import functools
 from copy import copy
 import logging

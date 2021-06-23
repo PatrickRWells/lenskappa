@@ -35,6 +35,14 @@ class StarMask(metaclass=ABCMeta):
     def from_file(cls, file, center):
         pass
 
+    @abstractmethod
+    def mask_catalog(self, catalog, region):
+        pass
+    
+    @abstractmethod
+    def mask_external_catalog(self, catalog, region):
+        pass
+
 
 class RegStarMask(StarMask):
 

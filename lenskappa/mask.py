@@ -9,7 +9,7 @@ from copy import deepcopy
 
 
 
-class Mask(metaclass=ABCMeta):
+class StarMask(metaclass=ABCMeta):
 
     def __init__(self, data, center):
         """
@@ -36,7 +36,7 @@ class Mask(metaclass=ABCMeta):
         pass
 
 
-class RegMask(Mask):
+class RegStarMask(StarMask):
 
     def __init__(self, data, center):
         """
@@ -45,7 +45,7 @@ class RegMask(Mask):
         """
         super().__init__(data, center)
         
-        self._convert_to_shapely()
+        self._convert_data_to_shapely()
     
 
     @classmethod
@@ -61,12 +61,12 @@ class RegMask(Mask):
         obj._file = file
         return obj
 
-    def _convert_to_shapely(self):
+    def _convert_data_to_shapely(self):
         """
         Converts data originally read in from a .reg file to a shapely polygon.
         Shapely is much more feature-complete and well optimized than the astropy regions package
         And while technically it only support operations on a cartesian plane, this is not a problem
-        for bright star masks that are at most a few arcseconds in size 
+        for bright star masks that are a few arcseconds in size 
         Currently supports circles and rectangles
         """
         new_regions = []
@@ -115,6 +115,16 @@ class RegMask(Mask):
         
 
     def relocate(self, new_center):
+        """
+        Recenters a particular bright star masks at a new location.
+        Used primarily when comparing a control field to a lens field
+
+        Parameter:
+            new_center <SkyCoord>: New location to center the mask
+        Returns:
+            new_mask <RegStarMask>: Deepcopy of self, with center changed
+        """
+
         sep = self._center.separation(new_center)
         pa = self._center.position_angle(new_center)
         new_mask = deepcopy(self)
@@ -128,4 +138,6 @@ class RegMask(Mask):
         return new_mask
 
         
-
+class FitsStarMask(StarMask):
+    pass
+    # TODO

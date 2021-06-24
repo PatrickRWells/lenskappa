@@ -95,6 +95,47 @@ class HSCSurvey(Survey):
         polygon = geometry.Polygon(sorted_coords)
         return polygon
 
+    @staticmethod
+    def get_masks(field):
+        """
+        Returns masks for a given HSC field as a StarMaskCollection
+        """
+        location = os.path.dirname(HSCSurvey.__file__)
+        config_location = os.path.join(location, '/config/hsc.toml')
+        try:
+            config_data = toml.load(config_location)
+        except:
+            logging.error("Unable to find config data for HSC Survey!"\
+                            " It should be located in lenskappa/surveys/config/hsc.toml")
+            return
+
+        try:
+            mask_data = config_data['masks']
+        except:
+            logging.error("Found the config, but no masks have been added. "\
+                            "Try running the script lenskappa_add_surveydata.")
+            return
+        
+        try:
+            field_data = mask_data[field]
+        except:
+            logging.error("Unable to locate mask data for field {} "\
+                            "Make sure it has been added and is spelled correctly".format(field))
+        
+        return HSCSurvey._parse_field_mask(field_data)
+    
+    @staticmethod
+    def _parse_field_mask(maskdata):
+        pass
+            
+            
+    
+    @staticmethod
+    def get_catalogs(field):
+        """
+        Returns catalog for a given HSC field
+        """
+        pass
 
 
 class hsc_region_parser:

@@ -7,8 +7,6 @@ import astropy.units as u
 import pandas as pd
 from copy import deepcopy
 
-
-
 class StarMask(metaclass=ABCMeta):
 
     def __init__(self, data, center):
@@ -149,3 +147,22 @@ class RegStarMask(StarMask):
 class FitsStarMask(StarMask):
     pass
     # TODO
+
+
+class StarMaskCollection(metaclass=ABCMeta):
+    def __init__(self, masks):
+        """
+        Container class for collections of masks.
+        Should contain methods that allow it to be used as if it was a mask
+        """
+        self._masks = masks
+    
+    @abstractmethod
+    def mask_catalog(self, catalog, region):
+        pass
+    
+    @abstractmethod
+    def mask_external_catalog(self, catalog, region):
+        pass
+    
+    

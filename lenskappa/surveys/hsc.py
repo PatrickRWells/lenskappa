@@ -1,7 +1,7 @@
 from numpy.lib.polynomial import poly
 import shapely
 from lenskappa import region
-from lenskappa.surveys.survey import Survey
+from lenskappa.surveys.survey import Survey, SurveyDataManager
 from lenskappa.region import SkyRegion
 import re
 from astropy.coordinates import SkyCoord
@@ -20,6 +20,8 @@ import toml
 import operator
 
 class HSCSurvey(Survey):
+    
+    datamanager = SurveyDataManager("hsc")
     def __init__(self):
         pass
 

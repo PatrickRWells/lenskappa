@@ -1,6 +1,5 @@
 import parser
 import numpy as np
-import weightfns
 from lenskappa.catalog import Catalog
 from lenskappa.region import Region
 from lenskappa.weighting import weighting
@@ -8,7 +7,7 @@ import logging
 import astropy.units as u
 
 class Counter:
-    def __init__(self, field_catalog, control_catalog, control_region, aperture, control_mask = None, *args, **kwargs):
+    def __init__(self, field_catalog, control_catalog, control_region, aperture, control_mask = None, field_mask = None, *args, **kwargs):
         self._field_catalog = field_catalog
         self._control_catalog = control_catalog
         self._control_region = control_region
@@ -65,6 +64,7 @@ class Counter:
         return results
         
     def _get_weight_values(self, num_samples, mutex = None, *args, **kwargs):
+        
         for _ in range(num_samples):
             region = self._control_region.generate_tile(self._aperture)
             control_catalog = self._control_catalog.get_objects_in_region(region)

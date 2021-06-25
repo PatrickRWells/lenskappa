@@ -9,7 +9,6 @@ import logging
 import shapely
 from shapely.geometry import geo
 import toml
-from lenskappa import base_config
 from abc import ABCMeta, abstractmethod
 
 def require_points(fn):

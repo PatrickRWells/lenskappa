@@ -1,0 +1,11 @@
+[data_config.meta.field]
+choices = [ "W01", "W02", "W03", "W04", "W05", "W06", "W07",]
+help = "Which of the HSC fields this data corresponds to"
+nargs = 1
+required = true
+
+[data_config.meta.datatype]
+choices = [ "catalog", "starmask",]
+help = "What kind of data you are adding"
+nargs = 1
+required = true

@@ -1,11 +1,10 @@
 import os
-from lenskappa import surveys
+import lenskappa
 import logging
 import toml
 import logging
 import argparse
 from pydoc import locate
-import lenskappa
 from copy import copy
 import hashlib
 
@@ -19,6 +18,9 @@ class SurveyDataManager:
         Basic configuration manager for keeping track of survey data
         Should probably never be explicitly instantiated by a user
         Keeps track of things with '.toml' files (found in /config)
+
+        It could be fun to spin this off into its own library for
+        managing datasets on a local machine
         """
         self._cmds = ['add', 'remove']
 
@@ -36,9 +38,10 @@ class SurveyDataManager:
                     config file will be named survey.toml        
         """
         self._survey = survey
-        base = os.path.dirname(surveys.survey.__file__)
+        base = os.path.dirname(lenskappa.__file__)
+        basepath = os.path.join(base, 'surveys', 'config')
         fname = '.'.join([survey, 'toml'])
-        self._survey_config_location = os.path.join(base, 'config', fname)
+        self._survey_config_location = os.path.join(basepath, fname)
         try:
             survey_config = toml.load(self._survey_config_location)
             self._validate_survey_config(survey_config)
@@ -54,6 +57,8 @@ class SurveyDataManager:
         """
         try:
             self.data_inputs = configdata['data_config']
+            self._configdata = configdata
+
         except:
             logging.error("No data types were found for survey {}".format(self._survey))
             exit(1)
@@ -65,11 +70,16 @@ class SurveyDataManager:
             logging.info("No metadata types found for this survey")
         
         try:
+            support_data = configdata['support_data']
+            self._setup_supportdata(support_data)
+        except Exception as e:
+            logging.info("No support data found for this survey")
+
+        try:
             self.data = configdata['data']
         except:
             self.data = {}
             
-        self._configdata = configdata
     
     def _setup_metadata(self, metadata):
         """
@@ -91,10 +101,61 @@ class SurveyDataManager:
             self.argparser.add_argument(dest=cmd, **cmd_input)
         self.argparser.add_argument(dest="path", nargs=1, help="Path to the datafile")
     
+    def _setup_supportdata(self, support_data):
+        self._support_data = {}
+        refs = {}
+        for dataname, datavalue in support_data.items():
+            try:
+                path = datavalue['path']
+                format = datavalue['format']
+            except:
+                continue
+
+            for dataid, datainfo in datavalue.items():
+                if datainfo.startswith('ref:'):
+                    ref_key = '.'.join(['support_data', dataname, dataid])
+                    self._parse_config_ref(ref_key, datainfo)
+
+
+
+    def _parse_config_ref(self, ref_key, ref_value):
+        dict_vals = ref_value.split(':')[1]
+        try:
+            refs = self._config_refs
+        except:
+            self._config_refs = {}
+
+        self._config_refs.update({ref_key: ref_value})
+        ref_path = dict_vals.split('.')
+        return_val = self._configdata
+        for path in ref_path:
+            return_val = return_val[path]
+
+        ref_path = ref_key.split('.')
+        item = self._configdata
+        for key in ref_path[:-1]:
+            item = item[key]
+        item.update({ref_path[-1]: return_val})
+        
+
+
+
     def _write_config(self):
         """
         Write the config in its current state to the config file
         """
+        try:
+            config_ref = self._config_refs
+        except:
+            config_ref = {}
+        print(config_ref)
+        for config_key, ref_value in config_ref.items():
+            keys = config_key.split('.')
+            loc = self._configdata
+            for key in keys[:-1]:
+                loc = loc[key]
+            
+            loc.update({keys[-1]: ref_value})
 
         with open(self._survey_config_location, 'w') as f:
             toml.dump(self._configdata, f)
@@ -158,7 +219,9 @@ class SurveyDataManager:
         try:
             return self.data[hash_key]
         except:
-            logging.error("File not found for parameters: {}".format(data))            
+            logging.error("File not found for parameters: {}".format(data))
+    def get_suppot_data(self, data):
+        pass           
     
     def parse_cmd_input(self, args):
 
@@ -194,3 +257,6 @@ class SurveyDataManager:
                 
         return fn(arg_dict)
     
+if __name__ == "__main__":
+    manager = SurveyDataManager('hsc')
+    manager._write_config()

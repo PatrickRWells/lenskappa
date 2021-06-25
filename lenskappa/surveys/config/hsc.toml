@@ -1,3 +1,8 @@
+[support_data.tracts_patches]
+path = "support/hsc/"
+format = "txt"
+ids = "ref:data_config.meta.field.choices"
+
 [data_config.meta.field]
 choices = [ "W01", "W02", "W03", "W04", "W05", "W06", "W07",]
 help = "Which of the HSC fields this data corresponds to"

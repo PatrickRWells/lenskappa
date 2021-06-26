@@ -35,11 +35,17 @@ class StarMask(metaclass=ABCMeta):
 
     @abstractmethod
     def mask_catalog(self, catalog, region):
+        """
+        Use when masking a catalog that falls INSIDE this bright star mask
+        """
         pass
     
     @abstractmethod
     def mask_external_catalog(self, catalog, region):
-        pass
+        """
+        Use when masking a catalog that falls outside this bright star mask.
+        Mask will be rotated onto the catalog
+        """
 
 
 class RegStarMask(StarMask):
@@ -59,10 +65,10 @@ class RegStarMask(StarMask):
         import regions
         try:
             regdata = regions.read_ds9(file)
-        except:
+        except Exception as e:
+            print(e)
             logging.error("Unable to read maskfile {}\n"\
                           "Expected a region file".format(file))
-            
         obj = cls(regdata, center)
         obj._file = file
         return obj
@@ -143,6 +149,12 @@ class RegStarMask(StarMask):
         
         return new_mask
 
+    def mask_catalog(self, catalog, region):
+        pass
+    
+    def mask_external_catalog(self, catalog, region):
+        pass
+
         
 class FitsStarMask(StarMask):
     pass
@@ -164,5 +176,8 @@ class StarMaskCollection(metaclass=ABCMeta):
     @abstractmethod
     def mask_external_catalog(self, catalog, region):
         pass
-    
+
+class StarMaskCollection:
+    def __init__(self, masks):
+        self._masks = masks
     

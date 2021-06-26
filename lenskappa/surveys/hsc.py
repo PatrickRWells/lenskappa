@@ -1,8 +1,13 @@
 from numpy.lib.polynomial import poly
+import re
 import shapely
 from lenskappa import region
+from lenskappa import starmask
 from lenskappa.surveys.survey import Survey, SurveyDataManager
 from lenskappa.region import SkyRegion
+from lenskappa.catalog import SkyCatalog2D
+from lenskappa.starmask import RegStarMask, StarMaskCollection, StarMask
+import threading
 import re
 from astropy.coordinates import SkyCoord
 from astropy import wcs
@@ -18,15 +23,75 @@ from copy import copy
 import logging
 import toml
 import operator
+from abc import ABCMeta, abstractmethod
+from concurrent import futures
 
 class HSCSurvey(Survey):
     
     datamanager = SurveyDataManager("hsc")
-    def __init__(self):
+    def __init__(self, field, *args, **kwargs):
+        self._field = field
+        super().__init__(*args, **kwargs)
+        #setup is called automatically by the superclass constructor
+
+    def setup(self, *args, **kwargs):
+        self._load_tract_data()
+        self._load_catalog_data(*args, **kwargs)
+        self._load_starmasks(*args, **kwargs)        
+
+    def get_objects(*args, **kwargs):
         pass
 
-    @classmethod
-    def read_hsc_tracts(cls, tractfile):
+    def mask_external_catalog(*args, **kwargs):
+        pass
+
+    
+    def _load_tract_data(self, *args, **kwargs):
+        tractfile = self.datamanager.get_support_file_location({'type': 'tracts_patches', 'id': self._field})
+        try:
+            self._tracts = self.read_hsc_tracts(tractfile)
+        except:
+            logging.error("Unable to read in tract data for HSC field {}".format(self._field))
+            return
+
+    def _load_catalog_data(self, *args, **kwargs):
+        """
+        Returns catalog for a given HSC field
+        """
+        file = self.datamanager.get_file_location({'field': self._field, 'datatype': 'catalog'})
+        if file:
+            print("Reading in catalog for HSC field {}".format(self._field))
+            data = pd.read_csv(file)
+            cat = hsc_catalog(data)
+            self._catalog =  cat
+        else:
+            logging.error("Unable to locate catalog file for HSC field {}".format(self._field))
+
+    def _load_starmasks(self, *args, **kwargs):
+        logging.info("Reading in star masks for HSC field {}".format(self._field))
+        logging.info("This may take a while")
+
+        mask_location = self.datamanager.get_file_location({'field': 'global', 'datatype': 'starmask'})
+        paths = {}
+        for tract in self._tracts.keys():
+            mask_path = os.path.join(mask_location, str(tract))
+            if not os.path.exists(mask_path):
+                logging.warnning("Unable to find bright star masks for HSC tract {}".format(tract))
+            else:
+                paths.update({tract: mask_path})
+        try:
+            band = kwargs['band']
+        except:
+            band = 'I'
+        starmasks = {}
+        for tract, path in paths.items():
+            patch_files = [os.path.join(path, file) for file in os.listdir(path) if file.endswith(band + '.reg')]
+            starmasks.update({tract: lambda files=patch_files: self._read_patch_maskfiles(files)})
+        self._starmasks = hsc_mask(starmasks)
+
+
+    @staticmethod
+    def read_hsc_tracts(tractfile):
         tracts = HSCSurvey._parse_tractfile(tractfile)
         regions = HSCSurvey._parse_tractdata(tracts)
         return regions
@@ -78,6 +143,7 @@ class HSCSurvey(Survey):
                     logging.warning("Failed to add subregion to tract {}".format(name))
             output.update({name: region_obj})
         return output
+
     
     @staticmethod
     def _patch_tuple_to_int(patch_tuple):
@@ -97,325 +163,91 @@ class HSCSurvey(Survey):
         polygon = geometry.Polygon(sorted_coords)
         return polygon
 
-    @staticmethod
-    def get_masks(field):
-        """
-        Returns masks for a given HSC field as a StarMaskCollection
-        """
-        location = os.path.dirname(HSCSurvey.__file__)
-        config_location = os.path.join(location, '/config/hsc.toml')
-        try:
-            config_data = toml.load(config_location)
-        except:
-            logging.error("Unable to find config data for HSC Survey!"\
-                            " It should be located in lenskappa/surveys/config/hsc.toml")
-            return
-
-        try:
-            mask_data = config_data['masks']
-        except:
-            logging.error("Found the config, but no masks have been added. "\
-                            "Try running the script lenskappa_add_surveydata.")
-            return
-        
-        try:
-            field_data = mask_data[field]
-        except:
-            logging.error("Unable to locate mask data for field {} "\
-                            "Make sure it has been added and is spelled correctly".format(field))
-        
-        return HSCSurvey._parse_field_mask(field_data)
     
     @staticmethod
     def _parse_field_mask(maskdata):
         pass
             
-            
-    
-    @staticmethod
-    def get_catalogs(field):
-        """
-        Returns catalog for a given HSC field
-        """
-        pass
+    def _read_patch_maskfiles(self, paths):
 
-
-class hsc_region_parser:
-    def __init__(self, f):
-        self._f = f
-    def __call__(self, instance, subregion_name, *args, **kwargs):
-        print("Changing subregion name")
-        new_subregion_name = self._parse_subregion(subregion_name)
-        self._f(instance, new_subregion_name, *args, **kwargs)
-    def _parse_subregion(self, subregion_name):
-        if type(subregion_name) == tuple:
-            return self._parse_patch_tuple_int(subregion_name)
-        elif type(subregion_name) == int:
-            return subregion_name
-        else:
-            logging.warning("Error: Tried to parse HSC region name. Expected a tupe or an int, got {}".format(subregion_name))
-            return subregion_name
-
-    def __get__(self, instance, owner):
-        return functools.partial(self, instance) 
-
-
-def hsc_config(f):
-    def wrapper(self, *args, **kwargs):
-        config = toml.load("config/hsc.toml")
-        kwargs.update({"config": config})
-        return f(self, *args, **kwargs)
-    return wrapper
-        
-
-
-
-class hsc_catalog:
-    def __init__(self, file):
-        self._data = pd.read_csv(file)
-        print("Splitting data...")
-        self.subsets = {id: self._data[self._data.tract == id] for id in self._data.tract.unique()}
-        self._patch_data = {}
-
-    
-    def get_objects_within_patches(self, tracts):
-        frames = []
-        for id, data in tracts.items():
-            patch_ints = [self._patch_tuple_to_int(key) for key in data['subregions'].keys()]
-            for key in patch_ints:
-                if key not in self._patch_data.keys():
-                    mask = (self.subsets[id].patch).isin(patch_ints)
-                    self._patch_data.update({key: self.subsets[id][mask]})
-                frames.append(self._patch_data[key])
-        return pd.concat(frames)
-
-    
-    def apply_mask_to_objects(self, patches, mask):
-        objects = self.get_objects_within_patches(patches)
-        return objects
-
-class field:
-    def __init__(self, top_region, sub_regions, catalog = None):
-        self._catalog = catalog
-        self._region = top_region
-        self._subregions = {key: region(value) for key,value in sub_regions.items()}
-        self._tiled = False
-    def get_inside(self, center, aperture):
-        #Given a circular aperture, determine which subregions it intersects with
-        subregions = {}
-        aperture_deg = aperture.to(u.deg).value
-        circle_center = geometry.point.Point(center.ra.degree, center.dec.degree)
-        aperture_poly = circle_center.buffer(aperture_deg)
-        for id, region in self._subregions.items():
-            inside = region.get_inside(aperture_poly)
-            if inside or inside is None:
-                subregions.update({id: inside})
-        return subregions
-    
-    def get_weight_ratios(self, x, y, ext_catalog = None, ext_catalog_center = None, weights = None, hsc_params = {}, ext_params = {}):
-        regmask = self.get_region_mask(x,y)
-        center = SkyCoord(self._x_tiles[x], self._y_tiles[y], unit="deg")
-        subregions = self.get_inside(center, self._aperture_size)
-        local_cat = self._catalog.get_objects_within_patches(subregions)
-        
-        cat = self.apply_region_mask(center, self._aperture_size, regmask, local_cat, get_dist=True)
-
-        new_ext_cat = ext_catalog.copy(deep=True)
-        dra, ddec = center.ra.degree - ext_catalog_center.ra.degree, center.dec.degree - ext_catalog_center.dec.degree
-        
-        new_ext_cat.ra += dra
-        new_ext_cat.dec += ddec
-
-        ext_cat_masked = self.apply_region_mask(center, self._aperture_size, regmask, new_ext_cat)
-
-        field_weights = {key: weight.compute_weight(ext_cat_masked, ext_params) for key, weight in weights.items()}
-        control_weights = {key: weight.compute_weight(cat, hsc_params) for key, weight in weights.items()}
-
-    def get_region_mask(self, x, y):
-        if not self._tiled:
-            return
-        center = SkyCoord(self._x_tiles[x], self._y_tiles[y], unit="deg")        
-        bright_mask_objects =  self.get_bright_mask(center, self._aperture_size)
-        return bright_mask_objects
-
-
-    def apply_region_mask(self, center, aperture, regmask, catalog, get_dist = False):
-        object_coords = SkyCoord(catalog.ra, catalog.dec, unit="deg")
-        seps = object_coords.separation(center)
-        if get_dist:
-            catalog['dist'] = seps.to(u.arcsec)
-
-        in_aperture_mask = (seps <= aperture)
-        outcat = catalog.copy(deep=True)
-        print(outcat)
-        outcat.drop(outcat[~in_aperture_mask].index, inplace=True)
-        print(outcat)
-        obj_point_coords = list(zip(outcat.ra, outcat.dec))
-        obj_points = [geometry.Point(point_coord) for point_coord in obj_point_coords]
-        covered_mask = np.array([False]*len(outcat))
-        for _, mask_object in regmask.iterrows():
-            if mask_object['shape'] == 'circle':
-                circle_center = geometry.point.Point(mask_object.ra, mask_object.dec)
-                object_polygon = circle_center.buffer(mask_object.ax1.value)
-            elif mask_object['shape'] == 'box':
-                center_ra, center_dec = mask_object.ra, mask_object.dec
-                dx, dy = mask_object.ax1.value, mask_object.ax2.value
-                x = (center_ra - dx/2, center_ra - dx/2, center_ra + dx/2, center_ra + dx/2)
-                y = (center_dec - dy/2, center_dec + dy/2, center_dec + dy/2, center_dec - dy/2)
-                points = list(zip(x, y))
-                object_polygon = geometry.Polygon(points)
-            within = [point.within(object_polygon) for point in obj_points]
-            covered_mask = covered_mask | np.array(within)
-        
-        return outcat[covered_mask]
-
-    def tile(self, aperture_size = 120 * u.arcmin):
-        #Tiles a region with the minimum number of aperture_size radius
-        #circular sub-regions that covers the whole region
-        #Note, this assumes a rectangular region
-        bounds = self._region.bounds 
-        size = aperture_size.to(u.degree).value
-        dx = np.abs(bounds[0] - bounds[2])
-        dy = np.abs(bounds[1] - bounds[3])
-        num_x = math.ceil(dx/size) + 1
-        num_y = math.ceil(dy/size) + 1
-        bot_left_x, bot_left_y = min(bounds[0], bounds[2]), min(bounds[1], bounds[3])
-        x_coords = [bot_left_x + i*size for i in range(num_x)]
-        y_coords = [bot_left_y + i*size for i in range(num_y)]
-        self._x_tiles = x_coords
-        self._y_tiles = y_coords
-        self._aperture_size = aperture_size
-        self._tiled = True
-
-    def load_bright_masks(self, path, type = 'HSC'):
-        self._mask_path = path
-        self._mask_type = type
-        if self._tiled:
-            if type == 'HSC':
-                self._apply_hsc_mask(path)
-
-    def get_bright_mask(self, center, aperture = 120*u.arcsec):
-        start = time.time()
-
-        regions = self.get_inside(center, 2*aperture)
-        frames = []
-        for region, data in regions.items():
-            for id, subregion in data['subregions'].items():
-                frames.append(subregion['ref'].get_mask_objects())
-        
-        full_frame = pd.concat(frames)
-        coords = SkyCoord(full_frame['ra'], full_frame['dec'], unit="deg")
-        distances = center.separation(coords)
-        mask = (distances <= 2*aperture)
-        return(full_frame[mask])
-
-    def _apply_hsc_mask(self, path, filter = 'i'):
-        contents = os.listdir(path)
-        sel_reg_files = {}
-
-        for item in contents:
-            try: reg_int = int(item)
-            except: continue
+        patchdata = {}
+        for file in paths:
             try:
-                current_region = self._subregions[reg_int]
-                sel_reg_files.update({reg_int: {'patches': {}}})
-            except:
-                continue
-            all_reg_files = [file for file in os.listdir(os.path.join(path, item))]
-            for file in all_reg_files:
-                data = file.split('-')
-                if data[-1] == '{}.reg'.format(filter.upper()):
-                    patch = data[2]
-                    patch_key = tuple(map(int, patch.split(',')))
-                    file_path = os.path.join(path, item, file)
-                    data = self._parse_hsc_region_mask(file_path)
-                    sel_reg_files[reg_int]['patches'].update({patch_key: data})
-            current_region.add_mask_data(sel_reg_files[reg_int]['patches'])
-
-    def _parse_hsc_region_mask(self, path):
-        regions_list = []
-        labels = ['shape', 'ra', 'dec', 'ax1', 'ax2', 'angle']
-
-        with open(path) as f:
-            for line in f:
-                if line.startswith('circle'):
-                    series = self._parse_circle_region(line)
-                    regions_list.append(series)
-                if line.startswith('box'):
-                    series = self._parse_box_region(line)
-                    regions_list.append(series)
-        return pd.DataFrame(regions_list, columns = labels)
-
-    def _parse_circle_region(self, line):
-        shape = line.split("#")[0].strip()
-        nums = [float(num) for num in re.findall(r'[+-]?\d+\.*\d*', line)]
-        center = (nums[0], nums[1])
-        radius = nums[2]*u.degree
-        return ["circle", *center, radius, radius, 0]
+                starmask_obj = RegStarMask.from_file(file, None)
+                patch_name = self._get_patch_from_filename(file)
+                patchdata.update({patch_name: starmask_obj})
+            except Exception as e:
+                print(e)
+                logging.warning("Couldn't find starmask at {}".format(file))
+                
+        return patchdata
 
 
-
-    def _parse_box_region(self, line):
-        shape = line.split("#")[0].strip()
-        nums = [float(num) for num in re.findall(r'[+-]?\d+\.*\d*', line)]
-        center = (nums[0], nums[1])
-        r1, r2 = nums[2]*u.degree, nums[3]*u.deg
-        angle = nums[4]
-        if angle != 0:
-            print("ANGLE: {}".format(angle))
-        return ["box", *center, r1, r2, angle]
-
-class region_old:
-    def __init__(self, data):
-        try: 
-            self._type = data['type']
+    def load_tracts(self, field):
+        tractfile = self.datamanager.get_support_file_location({'type': 'tracts_patches', 'id': field})
+        try:
+            self._tracts = self.read_hsc_tracts(tractfile)
         except:
-            self._type = 'None'
+            logging.error("Unable to read in tract data for HSC field {}".format(field))
+            return
+    
+    def _get_patch_from_filename(self, filename):
+        fname = os.path.basename(filename)
+        patch = re.search(r"[0-9],[0-9]", fname)
+        patch = patch.group()
+        data = tuple(int(p) for p in patch.split(','))
+        if len(data) == 2:
+            return data        
 
-        self._center = SkyCoord(*data['center'], unit="deg")
-        corner_ra, corner_dec = list(map(list, zip(*data['corners'])))
-        self._corners = SkyCoord(corner_ra, corner_dec, unit="deg")
-        if 'subregions' in data.keys():
-            self._subregions = {key: region(value) for key, value in data['subregions'].items()}
 
-    def get_inside(self, aperture_poly):
-        subregions = {}
-        if not hasattr(self, "_poly"):
-            self._poly = geometry.Polygon(list(zip(self._corners.ra.degree, self._corners.dec.degree)))
-        intersects = aperture_poly.intersects(self._poly)
-        if not intersects:
-            return False
+class hsc_catalog(SkyCatalog2D):
+    def __init__(self, cat):
+        super().__init__(cat)
+    
+    def init_tracts(self, tracts):
+        self._tracts = tracts
+        try:
+            tracts = self._cat.tract.unique()
+        except:
+            logging.error("The HSC catalog does not contain data about "\
+                          "which tract each object is in!")
+        self._tract_masks = {}
+        for tract_id in tracts:
+            mask = self._cat.tract == tract_id
+            self._tract_masks.update({tract_id: mask})
+
+    def get_objects_in_region(self, region):
+        """
+        Overload of the base method for HSC data.
+        This basically just makes the computation simpler by first filtering by tract
+        And then actually applying the region.
+        """
+        overlap = []
+        for tract_id, tract_region in self._tracts():
+            if tract_region.overlaps(region):
+                overlap.append(tract_id)
         
-        elif hasattr(self, "_subregions"):
-            for id, subregion in self._subregions.items():
-                inside = subregion.get_inside(aperture_poly)
-                if inside or inside is None:
-                    subregions.update({id: inside})
-        return {'ref': self, 'subregions': subregions}
+        if len(overlap) == 0:
+            logging.error("Input region did not overlap with any tracts in this field")
+            return
+        
+        else:
+            mask = self._tract_masks[overlap[0]]
+            for tract_id in overlap[1:]:
+                mask = mask | self._tract_masks[tract_id]
+        
+        return self[mask]
+
+class hsc_mask(StarMaskCollection):
+    def __init__(self, masks):
+        self._masks = masks
     
-    def set_data(self, data):
-        self._data = data
-    def add_mask_data(self, maskdata):
-        if type(maskdata) is pd.DataFrame:
-            self._maskdata = maskdata
-        elif hasattr(self, '_subregions'):
-            for key, data in maskdata.items():
-                try:
-                    self._subregions[key].add_mask_data(data)
-                except:
-                    print("ERROR: Unable to add mask data for subregion {}".format(key))
+    @abstractmethod
+    def mask_catalog(self, catalog, region):
+        pass
     
-
-    def get_mask_objects(self):
-        if hasattr(self, '_maskdata'):
-            return self._maskdata
-
-
-    def attach_data(self):
+    def mask_external_catalog(self, catalog, region):
         pass
 
-
-            
-if __name__ == '__main__':
-
-    tracts = HSCSurvey.read_hsc_tracts('tracts_patches_W-w02.txt')
+if __name__ == "__main__":
+    hsc = HSCSurvey("W02")

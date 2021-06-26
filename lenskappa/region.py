@@ -77,9 +77,6 @@ class SkyRegion(Region):
         returns:
             region: Region objects defining the tile
 
-        
-        TODO: Implement different tiling methods
-        TODO: Implement for non-rectangular region
 
         """
         try:

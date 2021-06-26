@@ -1,4 +1,6 @@
 import os
+
+from numpy.core.numeric import full
 import lenskappa
 import logging
 import toml
@@ -7,9 +9,54 @@ import argparse
 from pydoc import locate
 from copy import copy
 import hashlib
+from abc import ABCMeta, abstractmethod
 
-class Survey:
-    pass
+
+class Survey(metaclass=ABCMeta):
+    """
+    Individual surveys are essentially plugins. They must have
+    certain attributes and methods, to ensure they behave correctly
+    in the core code, but how they do those things is totally up to them
+
+    A survey should consist of several things:
+        A Region, defining where the survey is on the sky
+        A Catalog, containing the objects
+        Optionally, a bright star mask
+        A SurveyDataManger, defined as a class attribute
+
+        It's up to the individual class to decide when and how to load these.
+        It must define a setup method for this
+
+        It should also have several methods for use during the weighted number counting
+            mask_external_catalog: Mask a catalog that is NOT part of the survey,
+                based on some defined region WITHIN the survey
+            get_objects: Get objects from the survey's catalog, based on a region inside the survey area
+    """
+    def __init__(self, *args, **kwargs):
+        if not hasattr(self, "datamanager"):
+            logging.critical("No data manager found for the survey!")
+            return None
+        self.setup(*args, **kwargs)
+
+    @abstractmethod
+    def setup(self, *args, **kwargs):
+        pass
+
+        
+    @abstractmethod
+    def setup(self, *args, **kwargs):
+        pass
+
+    @abstractmethod
+    def mask_external_catalog(self, ext_catalog, int_region, *args, **kwargs):
+        pass
+    
+    @abstractmethod
+    def get_objects(self, int_region, mask = True, *args, **kwargs):
+        pass
+    
+
+
 
 class SurveyDataManager:
 
@@ -23,9 +70,7 @@ class SurveyDataManager:
         managing datasets on a local machine
         """
         self._cmds = ['add', 'remove']
-
         self._get_survey_config(survey)
-    
     def __del__(self):
         pass
     
@@ -39,9 +84,10 @@ class SurveyDataManager:
         """
         self._survey = survey
         base = os.path.dirname(lenskappa.__file__)
-        basepath = os.path.join(base, 'surveys', 'config')
+        self._basepath = os.path.join(base, 'surveys')
+        base_configpath = os.path.join(base, 'surveys', 'config')
         fname = '.'.join([survey, 'toml'])
-        self._survey_config_location = os.path.join(basepath, fname)
+        self._survey_config_location = os.path.join(base_configpath, fname)
         try:
             survey_config = toml.load(self._survey_config_location)
             self._validate_survey_config(survey_config)
@@ -79,7 +125,7 @@ class SurveyDataManager:
             self.data = configdata['data']
         except:
             self.data = {}
-            
+            self._configdata.update({'data': self.data})
     
     def _setup_metadata(self, metadata):
         """
@@ -115,6 +161,7 @@ class SurveyDataManager:
                 if datainfo.startswith('ref:'):
                     ref_key = '.'.join(['support_data', dataname, dataid])
                     self._parse_config_ref(ref_key, datainfo)
+            self._support_data.update({dataname: datavalue})
 
 
 
@@ -148,7 +195,6 @@ class SurveyDataManager:
             config_ref = self._config_refs
         except:
             config_ref = {}
-        print(config_ref)
         for config_key, ref_value in config_ref.items():
             keys = config_key.split('.')
             loc = self._configdata
@@ -217,12 +263,38 @@ class SurveyDataManager:
         key = '_'.join(keys)
         hash_key = hashlib.md5(key.encode('utf-8')).hexdigest()
         try:
-            return self.data[hash_key]
+            full_path = self.data[hash_key]
+            if full_path.endswith('.'):
+                full_path = full_path[:-1]
+
+            return full_path
         except:
             logging.error("File not found for parameters: {}".format(data))
-    def get_suppot_data(self, data):
-        pass           
     
+    def get_support_file_location(self, data, *args, **kwargs):
+        try:
+            support_datatype = data['type']
+        except:
+            logging.error("No support data type found")
+            return
+        
+        try:
+            support_data_id = data['id']
+        except:
+            logging.error("No ID passed for support data retrieval")
+            return
+
+        if support_data_id in self._support_data[support_datatype]['ids']:
+            fname = '.'.join([support_data_id, self._support_data[support_datatype]['format']])
+            full_path =  os.path.join(self._basepath, self._support_data[support_datatype]['path'], fname)
+            if full_path.endswith('.'):
+                full_path = full_path[:-1]
+            if os.path.exists(full_path):
+                return full_path
+            else:
+                logging.warning("Unable to find support file {}".format(data))
+                return
+
     def parse_cmd_input(self, args):
 
         """
@@ -259,4 +331,3 @@ class SurveyDataManager:
     
 if __name__ == "__main__":
     manager = SurveyDataManager('hsc')
-    manager._write_config()

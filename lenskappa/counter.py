@@ -94,4 +94,3 @@ class Counter:
 if __name__ == '__main__':
     import toml
     config = toml.load('config/counts.toml')
-    weight = count('zweight', config)

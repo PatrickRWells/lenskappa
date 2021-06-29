@@ -33,7 +33,7 @@ class weight:
         """
         Loads the appropriate weightfunction
         """
-        from lenskappa import weightfns
+        from lenskappa.weighting import weightfns
         try:
             weightdata = self._config[self._name]
         except:
@@ -53,26 +53,21 @@ class weight:
         """
         #Check to make sure the required parameters exist in the catalog
         #Or are mapped in pars
-        cat_pars_found = [par in catalog.columns for par in self._cat_params]
-        self._parmap = {}
+        cat_pars = catalog.get_parmap()
         #Check for catalog params
-        for parname, is_found in zip(self._cat_params, cat_pars_found):
-            if is_found:
-                self._parmap.update({parname: parname}) 
-                continue
-            try:
-                parmap = pars['map'][parname]
-                self._parmap.update({parname: parmap})
-            except:
-                print("Error: parameter {} required to calculate weight {} but couldn't find it".format(parname, self._name))
-                return
+        for std_name in self._cat_params:
+            if std_name not in cat_pars.keys():
+                logging.error("Looked for parameter {} in the input catalog, but couldn't find it".format(std_name))
+                exit()
         for parname in self._other_params:
             try:
-                parval = pars[parname]
-                self._parmap.update({parname: parval})
+                parval = cat_pars[parname]
             except:
                 print("Error: unable to find value for parameter {} required to calculate weight {}".format(parname, self._name))
-                return
+                exit()
+        
+        self._parmap = cat_pars
+
         return self._weightfn(catalog, self._parmap)    
 
 

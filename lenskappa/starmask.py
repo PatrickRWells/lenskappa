@@ -20,15 +20,6 @@ class StarMask(metaclass=ABCMeta):
         self._data = data
         self._center = center
     
-    @abstractmethod
-    def relocate(self, new_center):
-        """
-        Rotates the region catalog on the sky
-        Returns a new Mask object with the set centered at the given value
-        Parameters:
-            to - SkyCoord marking the center of the ending location
-        """
-        pass
 
     @abstractmethod
     def from_file(cls, file, center):
@@ -131,41 +122,27 @@ class RegStarMask(StarMask):
         if angle_ != 0:
             shape = affinity.rotate(shape, angle_)
         return shape
-        
-
-    def relocate(self, new_center):
-        """
-        Recenters a particular bright star masks at a new location.
-        Used primarily when comparing a control field to a lens field
-
-        Parameter:
-            new_center <SkyCoord>: New location to center the mask
-        Returns:
-            new_mask <RegStarMask>: Deepcopy of self, with center changed
-        """
-
-        sep = self._center.separation(new_center)
-        pa = self._center.position_angle(new_center)
-        new_mask = deepcopy(self)
-        new_mask._shape_centers = new_mask._shape_centers.directional_offset_by(pa, sep)
-        centers = new_mask._shape_centers
-        for i, shape in enumerate(new_mask._shapely_regdata):
-            shape.center.x = centers[i].ra.degree
-            shape.center.y = centers[i].dec.degree
-        new_mask._center = new_center
-        
-        return new_mask
 
     def get_bool_region_mask(self, catalog, region):
+        """
+        Given a region in the mask, and a catalog in the same region, return a 
+        boolean mask for the catalog, where True indicates the object falls behind a mask
+        and False indicates the object does not.
+        
+        """
         cat_points = catalog.get_points()
         masks_in_region = [reg for reg in self._shapely_regdata if region.intersects(reg)]
         mask = np.array([False]*len(catalog))
         for index, point in enumerate(cat_points):
+            #Loop through the objects in the catalog
             if not mask[index]:
+                #If they have not already been found to fall behind a mask
                 for submask in masks_in_region:
+                    #Check to see if they fall behind any of the masks
                     if submask.contains(point):
                         mask[index] = True
                         break
+                        #If we find they are masked, move on to the next one
         return mask
 
     def mask_catalog(self, catalog, region):

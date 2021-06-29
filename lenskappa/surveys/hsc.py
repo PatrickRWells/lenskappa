@@ -1,3 +1,5 @@
+from sys import intern
+from numpy.lib.arraysetops import isin
 from numpy.lib.polynomial import poly
 import re
 import shapely
@@ -40,20 +42,14 @@ class HSCSurvey(Survey):
         #setup is called automatically by the superclass constructor
 
     def setup(self, *args, **kwargs):
-        self._load_tract_data()
+        self._load_tract_data(*args, **kwargs)
         self._load_starmasks(*args, **kwargs)
-
         self._load_catalog_data(*args, **kwargs)
         self._init_tracts(*args, **kwargs)
+        tract_objs = list(self._tracts.values())
+        self._region = SkyRegion.union(tract_objs)
 
-    def get_objects(self, region, masked=True, *args, **kwargs):
-        """
-        Get objects in a particular region.
-        Parameters:
-            region: shapely object defining the region of interest
-            masked: whether to apply the bright star masks to the catalog first.
-        
-        """
+    def _get_patch_overlaps(self, region):
         tracts = []
         patches = {}
         for id, tract in self._tracts.items():
@@ -63,17 +59,45 @@ class HSCSurvey(Survey):
                 patches.update({id: overlap_patches})
         if not tracts:
             logging.error("Region deos not overlap with any tracts.")
+        
+        return patches
 
+    def generate_cirular_tile(self, radius, *args, **kwargs):
+        pass
+
+
+    def get_objects(self, region, masked=True, *args, **kwargs):
+        """
+        Get objects in a particular region.
+        Parameters:
+            region: shapely object defining the region of interest
+            masked: whether to apply the bright star masks to the catalog first.
+        
+        """
+        patches = self._get_patch_overlaps(region)
         catalog = self._catalog.filter_by_subregions(patches)
-        unmasked_catalog = catalog.get_objects_in_region(region)
+        unmasked_catalog = catalog.get_objects_in_region(region, *args, **kwargs)
+        if len(unmasked_catalog) == 0:
+            logging.error("Returned an empty dataframe")
+            return unmasked_catalog
 
         if masked:
             return self._starmasks.mask_catalog(unmasked_catalog, region, patches)
         else:
             return unmasked_catalog
 
-    def mask_external_catalog(*args, **kwargs):
-        pass
+    def mask_external_catalog(self, external_catalog, external_region, internal_region, *args, **kwargs):
+        if not ( isinstance(external_region, SkyRegion) and isinstance(internal_region, SkyRegion) ):
+            logging.error("Expected SkyRegion objects in mask_external_catalog")
+            return None
+
+        if not internal_region.area == external_region.area:
+            logging.warning("Trying to put together two regions that are not the same size!"\
+                            "I will only be able to center them on each other")
+        
+        patches = self._get_patch_overlaps(internal_region)
+        new_catalog = self._starmasks.mask_external_catalog(external_catalog, external_region, internal_region, patches=patches, *args, **kwargs)
+        return new_catalog
 
     
     def _load_tract_data(self, *args, **kwargs):
@@ -86,7 +110,7 @@ class HSCSurvey(Survey):
         self._tract_masks = {}
         try:
             tracts = HSCSurvey._parse_tractfile(tractfile)
-            self._tracts = HSCSurvey._parse_tractdata(tracts)
+            self._tracts = HSCSurvey._parse_tractdata(tracts, *args, **kwargs)
         except Exception as e:
             logging.error("Unable to read in tract data for HSC field {}".format(self._field))
             traceback.print_tb(e.__traceback__)
@@ -114,7 +138,7 @@ class HSCSurvey(Survey):
             print("Reading in catalog for HSC field {}".format(self._field))
 
             catalog = pd.read_csv(file)
-            self._catalog = hsc_catalog(catalog)
+            self._catalog = hsc_catalog(catalog, *args, **kwargs)
         else:
             logging.error("Unable to locate catalog file for HSC field {}".format(self._field))
 
@@ -128,12 +152,6 @@ class HSCSurvey(Survey):
         mask_location = self.datamanager.get_file_location({'field': 'global', 'datatype': 'starmask'})
         paths = {}
         for tract in self._tracts.keys():
-            try:
-                wanted = tract in kwargs['tracts']
-                if not wanted:
-                    continue
-            except:
-                continue
             mask_path = os.path.join(mask_location, str(tract))
             if not os.path.exists(mask_path):
                 logging.warnning("Unable to find bright star masks for HSC tract {}".format(tract))
@@ -183,9 +201,15 @@ class HSCSurvey(Survey):
         return tracts
     
     @staticmethod
-    def _parse_tractdata(tractdata):
+    def _parse_tractdata(tractdata, *args, **kwargs):
         output = {}
+        try:
+            wanted_tracts = kwargs['tracts']
+        except:
+            wanted_tracts = []
         for name, tract in tractdata.items():
+            if wanted_tracts and name not in wanted_tracts:
+                    continue
             corners = tract['corners']
             center = tract['center']
             polygon = HSCSurvey._parse_polygon_corners(center, corners)
@@ -256,12 +280,12 @@ class HSCSurvey(Survey):
 
 class hsc_catalog(SkyCatalog2D):
     
-    def __init__(self, cat):
+    def __init__(self, cat, *args, **kwargs):
         try:
             self._tract_names = cat['tract'].unique()
         except:
             logging.warning("Unable to initialize catalog tracts")
-        super().__init__(cat)
+        super().__init__(cat, *args, **kwargs)
 
     def _init_subregion(self, name, *args, **kwargs):
         if name in self._cat['tract'].unique():
@@ -273,6 +297,7 @@ class hsc_catalog(SkyCatalog2D):
                 logging.error("Unable to initialize mask for subregion {}".format(name))
         else:
             return super()._init_subregion(name)
+
     def filter_by_subregions(self, subregions):
         if type(subregions) == list:
             return super().filter_by_subregions(subregions)
@@ -291,27 +316,8 @@ class hsc_mask(StarMaskCollection):
     
     
 
-    def mask_catalog(self, catalog, region, patches):
-        all_masks = []
-        for tract_id, patches in patches.items():
-            try:
-                tract_mask = self._masks[tract_id]
-            except Exception as e:
-                logging.warning("No masks found for tract {}".format(tract_id))
-                return
-            
-            try:
-                mask = tract_mask.result()
-                self._masks[tract_id] = mask
-            except:
-                mask = tract_mask
-            
-            for patch_id in patches:
-                try:
-                    all_masks.append(mask[patch_id])
-                except Exception as e:
-                    print(e)
-                    logging.warning("Unable to find bright star mask for tract {} patch {}".format(tract_id, patch_id))
+    def mask_catalog(self, catalog, region, patches, *args, **kwargs):
+        all_masks = self._get_mask_objects_by_patch(patches, *args, **kwargs)
 
         final_mask = np.array([True]*len(catalog))
 
@@ -320,9 +326,42 @@ class hsc_mask(StarMaskCollection):
             is_masked = mask.get_bool_region_mask(catalog, region)
             final_mask = final_mask & is_masked
 
-        return catalog.from_dataframe(catalog[final_mask])            
-            
+        return catalog.apply_catalog_mask(~final_mask)
+
+    def _get_mask_objects_by_patch(self, patches, *args, **kwargs):
+        all_masks = []
+        for tract_id, patches in patches.items():
+            try:
+                tract_mask = self._masks[tract_id]
+            except Exception as e:
+                logging.warning("No masks found for tract {}".format(tract_id))
+                return
+            try:
+                mask = tract_mask.result()
+                self._masks[tract_id] = mask
+            except:
+                mask = tract_mask
+            for patch_id in patches:
+                try:
+                    all_masks.append(mask[patch_id])
+                except Exception as e:
+                    print(e)
+                    logging.warning("Unable to find bright star mask for tract {} patch {}".format(tract_id, patch_id))
+
+        return all_masks
+
     
-    def mask_external_catalog(self, catalog, region):
-        pass
-    
+    def mask_external_catalog(self, external_catalog, external_region, internal_region, *args, **kwargs):
+        try:
+            patches = kwargs['patches']
+        except:
+            logging.error("Expected a list of patches associated with this region")
+            return
+
+        external_center = external_region.center
+        internal_center = internal_region.center
+        dist = external_center.separation(internal_center)
+        pa = external_center.position_angle(internal_center)
+        catalog = external_catalog.rotate(pa, dist)
+        masked_catalog = self.mask_catalog(catalog, internal_region, patches)
+        return masked_catalog

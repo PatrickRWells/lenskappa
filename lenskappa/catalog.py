@@ -5,7 +5,7 @@ import numpy as np
 from astropy import wcs, coordinates, units
 import astropy.units as u
 from shapely import geometry
-from copy import copy
+from copy import copy, deepcopy
 import logging
 import shapely
 from shapely.geometry import geo
@@ -45,7 +45,7 @@ def require_validation(params, *args, **kwargs):
             try:
                 checkvalid = self._valid
             except:
-                logging.error("Catalog parameters have not been validated!")
+                logging.warning("Catalog parameters have not been validated!")
                 return None
             isvalid = [checkvalid[name] for name in params]
             if np.all(isvalid):
@@ -57,11 +57,14 @@ def require_validation(params, *args, **kwargs):
 
 class Catalog(metaclass=ABCMeta):
 
-    def __init__(self, cat, parmap = {}, partypes = {}, *args, **kwargs):
+    def __init__(self, cat, base_parmap = {}, partypes = {}, *args, **kwargs):
         self._cat = cat
         self._needed_parameter_types = partypes
-        self._parmap = parmap
-        if parmap:
+        self._parmap = base_parmap
+        try:
+            new_parmap = kwargs['parmap']
+            self.load_params(new_parmap)
+        except:
             self._validate_parmap()
 
     def __getitem__(self, key):
@@ -88,6 +91,9 @@ class Catalog(metaclass=ABCMeta):
     def get_dataframe(self):
         return self._cat
 
+    def get_parmap(self):
+        return self._parmap
+
     @classmethod
     def read_csv(cls, file, config = None, *args, **kwargs):
         """Read in a file from a CSV
@@ -105,8 +111,12 @@ class Catalog(metaclass=ABCMeta):
             logging.error("Pandas could not read file {}".format(file))
             return None
     @classmethod
-    def from_dataframe(cls, *args, **kwargs):
-        return cls(*args, **kwargs)
+    def from_dataframe(cls, cat, *args, **kwargs):
+        return cls(cat, *args, **kwargs)
+    
+    def apply_catalog_mask(self, mask):
+        df = self._cat.loc[self._cat[mask].index]
+        return self.from_dataframe(df, parmap=self._parmap)
 
     def load_params(self, input_map, *args, **kwargs):
         """
@@ -131,6 +141,9 @@ class Catalog(metaclass=ABCMeta):
                 self._parmap.update({par: input_parmap})
             except:
                 logging.warning("No rename found for parameter {}, defaulting to {}".format(par, parmap))
+
+        for par, parmap in input_map.items():
+            self._parmap.update({par: parmap})
         self._validate_parmap()
 
     def _validate_parmap(self):
@@ -174,9 +187,9 @@ class Catalog(metaclass=ABCMeta):
         pass
 
 class Catalog2D(Catalog):
-    def __init__(self, cat, *args, **kwargs):
+    def __init__(self, cat, base_parmap = {}, *args, **kwargs):
         needed_parameter_types = {'x': float, 'y': float}
-        super().__init__(cat, partypes=needed_parameter_types, *args, **kwargs)
+        super().__init__(cat, base_parmap, partypes=needed_parameter_types, *args, **kwargs)
         self._points_initialized = False
         self._subregions = {}
         self._unions = {}
@@ -222,7 +235,7 @@ class Catalog2D(Catalog):
         except:
             mask = self._init_subregion[name]
 
-        return self.from_dataframe(cat=self._cat[mask])
+        return self.from_dataframe(cat=self._cat[mask], parmap=self._parmap)
     
     def filter_by_columns(self, conditions, *args, **kwargs):
         """
@@ -238,8 +251,7 @@ class Catalog2D(Catalog):
 
             final_mask = final_mask | sub_mask
         
-        cat = self._cat[final_mask]
-        return self.from_dataframe(cat=cat)
+        return self.apply_catalog_mask(final_mask)
 
 
     @require_points
@@ -258,7 +270,7 @@ class Catalog2D(Catalog):
                 masks.append(self._init_subregion(region_id))
         if masks:
             final_mask = np.any(masks, axis=0)
-            return self.from_dataframe(cat=self._cat[final_mask])
+            return self.apply_catalog_mask(mask = final_mask)
         else:
             logging.error("None of the subregions were found.")
 
@@ -305,9 +317,9 @@ class Catalog2D(Catalog):
 
 class SkyCatalog2D(Catalog2D):
 
-    def __init__(self, cat, *args, **kwargs):
-        parmap = ({'x': 'ra', 'y': 'dec'})
-        super().__init__(cat, parmap=parmap, *args, **kwargs)
+    def __init__(self,cat, *args, **kwargs):
+        base_parmap = ({'x': 'ra', 'y': 'dec'})
+        super().__init__(cat, base_parmap=base_parmap, *args, **kwargs)
 
     @require_validation(['x', 'y'])
     def _init_points(self):
@@ -325,7 +337,7 @@ class SkyCatalog2D(Catalog2D):
             self._skypoints = SkyCoord(self._cat[self._parmap['x']], self._cat[self._parmap['y']], unit="deg")
             return self._skypoints
 
-
+    
     def add_subregion(self, name, region, *args, **kwargs):
         """
         Shapely does not represent circular regions exactly, so this method
@@ -337,6 +349,23 @@ class SkyCatalog2D(Catalog2D):
         """
         self._polytype = region.get_type()
         super().add_subregion(name, region)
+
+    def rotate(self, pa, dist, *args, **kwargs):
+        """
+        Rotates a catalog on the sky
+        """
+        if len(self) > 30000:
+            logging.error("Tried to rotate this catalog, but its too big!")
+            return
+            
+        coords = self.get_coords()
+        new_coords = coords.directional_offset_by(pa, dist)
+        new_df = deepcopy(self._cat)
+        new_df[self._parmap['x']] = new_coords.ra.degree
+        new_df[self._parmap['y']] = new_coords.dec.degree
+        new_catalog = self.from_dataframe(new_df, parmap=self._parmap)
+        new_catalog._skypoints = new_coords
+        return new_catalog
 
     def _add_circular_subregion(self, name, center, radius):
         """Internal function for initializing circular subregion"""
@@ -362,12 +391,16 @@ class SkyCatalog2D(Catalog2D):
         mask = distances <= region['radius']
         self._subregions[name]['mask'] = mask
 
-    def get_objects_in_region(self, region):
+    def get_objects_in_region(self, region, *args, **kwargs):
         if type(region) == CircularSkyRegion:
-            center, radius = region.get_exact()
+            center, radius = region.skycoord
+
             coords = self.get_coords()
-            mask = (coords.separation(center) <= radius)
-            item = self.from_dataframe(self._cat[mask])
+            distances = coords.separation(center)
+            self._cat['dist'] = distances
+            mask = (distances <= radius)
+            self._parmap.update({'r': 'dist'})
+            item = self.apply_catalog_mask(mask)
             return item
         else:
             return super().get_objects_in_region(region)

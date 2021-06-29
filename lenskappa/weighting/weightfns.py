@@ -82,7 +82,7 @@ def flexion(cat, data, is_log = True):
         m_gals = 10**(cat[data['m_gal']])
     else:
         m_gals = cat[data['m_gal']]
-    
+
     rs = cat[data['r']]
     return m_gals/(rs**3)
 
@@ -91,7 +91,7 @@ def tidal(cat, data, is_log = True):
         m_gals = 10**(cat[data['m_gal']])
     else:
         m_gals = cat[data['m_gal']]
-    
+
     rs = cat[data['r']]
     return m_gals/(rs**2)
 
@@ -137,13 +137,8 @@ def compute_halomass(cat, data, islog=True):
     z_gal = cat[data['z_gal']]
     m_gal = cat[data['m_gal']]
     halo_masses = np.zeros(len(m_gal))
-    print(z_gal)
-    print(m_gal)
     i = 0
     for index, z in z_gal.iteritems():
-        print("HI")
-        print(z)
-        print(m_gal[index])
         if z <= 1:
             a = 1/(1+z)
 

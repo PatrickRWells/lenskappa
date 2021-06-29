@@ -50,6 +50,14 @@ class Region(metaclass=ABCMeta):
         self._subregion_centers.update({name: center})
         return True
     
+    @property
+    def area(self):
+        return self._polygon.area
+    
+    @property
+    def center(self):
+        return self._center
+    
     def get_type(self):
         poly_type = type(self._polygon)
         if poly_type == geometry.Polygon:
@@ -80,24 +88,38 @@ class Region(metaclass=ABCMeta):
         for name, subregion in self._subregions.items():
             if subregion.intersects(second_region):
                 sub.append(name)
-        return(sub)
+        return sub
+    
+    @classmethod
+    def union(cls, regions, *args, **kwargs):
+        if type(regions) != list:
+            logging.error("Unable to combine regions, expected a list")
+            return None
+        shapely_objs = [region._polygon for region in regions]
+        from shapely.ops import unary_union
+        combined = unary_union(shapely_objs)
+        return cls(combined.centroid, combined)
+
+        
 
 
 class SkyRegion(Region):
     def __init__(self, center, region, *args, **kwargs):
         super().__init__(center, region, *args, **kwargs)
+    
+    @property
+    def skycoord(self):
+        pass
 
     def build_region(self, center, input_region, *args, **kwargs):
         return SkyRegion(center, input_region)
-
-    
 
     def generate_circular_tile(self, aperture, *args, **kwargs):
         """
         Generates a circular tile, somewhere in the region.
         In the past this was done by fully tiling the region before doing the weights
         Doing this randomly is advantageous for several reasons:
-            1. Handles non-rectangular regions natively (just rejects sampels that fall outside)
+            1. Handles non-rectangular regions natively (just rejects samples that fall outside)
             2. Makes the code easier to parallelize
             3. Allows for easier testing
         Parameters:
@@ -124,7 +146,7 @@ class SkyRegion(Region):
         point = geometry.Point(point_coords)
         if not self._polygon.contains(point):
             #If the center of the tile falls outside the region, try again
-            return self.generate_tile(aperture=aperture)
+            return self.generate_circular_tile(aperture=aperture)
         
         return CircularSkyRegion(coord, aperture)
         
@@ -144,10 +166,11 @@ class SkyRegion(Region):
         self._high_sampler_range = [x_range[1], y_range[1]]
 
         self._sampler = np.random.default_rng(int(time.time()))
+
     
     def contains(self, point):
         return self._polygon.contains(point)
-
+    
 class CircularSkyRegion(SkyRegion):
 
     def __init__(self, center, radius, *args, **kwargs):
@@ -172,6 +195,6 @@ class CircularSkyRegion(SkyRegion):
             logging.error("Unable creat circle of radius {}. Radius should be an astropy quantity".format(radius))
         super().__init__(center, circle)
     
-    def get_exact(self):
+    @property
+    def skycoord(self):
         return self._coord, self._radius
-    

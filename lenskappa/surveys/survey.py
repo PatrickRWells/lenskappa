@@ -30,29 +30,60 @@ class Survey(metaclass=ABCMeta):
         It should also have several methods for use during the weighted number counting
             mask_external_catalog: Mask a catalog that is NOT part of the survey,
                 based on some defined region WITHIN the survey
-            get_objects: Get objects from the survey's catalog, based on a region inside the survey area
+            get_objects: Get objects from the survey's catalog, based on a region inside the survey area.
+                            Should apply the bright star mask if it exists.
     """
     def __init__(self, *args, **kwargs):
         if not hasattr(self, "datamanager"):
             logging.critical("No data manager found for the survey!")
             return None
         self.setup(*args, **kwargs)
+        self._validate()
 
-    @abstractmethod
-    def setup(self, *args, **kwargs):
-        pass
-
+    def _validate(self):
+        try:
+            region = self._region
+        except:
+            logging.error("No region found for the survey")
         
+        try:
+            catalog = self._catalog
+        except:
+            logging.error("Now catalog found for this survey")
+
     @abstractmethod
     def setup(self, *args, **kwargs):
         pass
 
+    def generate_circular_tile(self, radius):
+        """
+        This should probably be overridden for some kinds of 
+        """
+
+        return self._region.generate_circular_tile(radius)
+
     @abstractmethod
-    def mask_external_catalog(self, ext_catalog, int_region, *args, **kwargs):
-        pass
+    def mask_external_catalog(self, external_catalog, external_catalog_region, internal_region, *args, **kwargs):
+        """
+        Apply the bright star mask for a region inside the survey to a catalog from outside the survey region.
+        
+        Parameters:
+            external_catalog: <catalog.Catalog> The catalog for the external objects
+            external_region: <region.SkyRegion> A region defining the location of the catalog catalog
+            internal_region: <region.SkyRegion> A region defining the location inside the survey to get the masks from
+        """
     
     @abstractmethod
-    def get_objects(self, int_region, mask = True, *args, **kwargs):
+    def get_objects(self, internal_region, mask = True, *args, **kwargs):
+        """
+        Get objects within in a particular region of the survey.
+        Either with or without masking objects near brigh stars.
+
+        Parameters:
+            internal_region <region.SkyRegion> Region inside the survey area to get objects for
+            mask: <bool> Whether or not to mask out objects based on the bright star masks
+        
+        """
         pass
     
 

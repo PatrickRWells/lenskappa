@@ -4,9 +4,9 @@ import shapely
 from lenskappa import region
 from lenskappa import starmask
 from lenskappa.surveys.survey import Survey, SurveyDataManager
-from lenskappa.region import SkyRegion
-from lenskappa.catalog import SkyCatalog2D
-from lenskappa.starmask import RegStarMask, StarMaskCollection, StarMask
+from lenskappa.region import CircularSkyRegion, SkyRegion
+from lenskappa.catalog import SkyCatalog2D, require_points, require_validation
+from lenskappa.starmask import StarMaskCollection, RegStarMask, StarMask
 import threading
 import re
 from astropy.coordinates import SkyCoord
@@ -25,55 +25,115 @@ import toml
 import operator
 from abc import ABCMeta, abstractmethod
 from concurrent import futures
+import traceback
+import astropy.units as u
+
+
 
 class HSCSurvey(Survey):
     
     datamanager = SurveyDataManager("hsc")
     def __init__(self, field, *args, **kwargs):
         self._field = field
+        self._exec = futures.ProcessPoolExecutor()
         super().__init__(*args, **kwargs)
         #setup is called automatically by the superclass constructor
 
     def setup(self, *args, **kwargs):
         self._load_tract_data()
-        self._load_catalog_data(*args, **kwargs)
-        self._load_starmasks(*args, **kwargs)        
+        self._load_starmasks(*args, **kwargs)
 
-    def get_objects(*args, **kwargs):
-        pass
+        self._load_catalog_data(*args, **kwargs)
+        self._init_tracts(*args, **kwargs)
+
+    def get_objects(self, region, masked=True, *args, **kwargs):
+        """
+        Get objects in a particular region.
+        Parameters:
+            region: shapely object defining the region of interest
+            masked: whether to apply the bright star masks to the catalog first.
+        
+        """
+        tracts = []
+        patches = {}
+        for id, tract in self._tracts.items():
+            if tract.intersects(region):
+                tracts.append(id)
+                overlap_patches = tract.get_subregion_intersections(region)
+                patches.update({id: overlap_patches})
+        if not tracts:
+            logging.error("Region deos not overlap with any tracts.")
+
+        catalog = self._catalog.filter_by_subregions(patches)
+        unmasked_catalog = catalog.get_objects_in_region(region)
+
+        if masked:
+            return self._starmasks.mask_catalog(unmasked_catalog, region, patches)
+        else:
+            return unmasked_catalog
 
     def mask_external_catalog(*args, **kwargs):
         pass
 
     
     def _load_tract_data(self, *args, **kwargs):
+        """
+        Loads data about the tracts and patches for the given HSC field
+        Used to split up data, making it easier to manage
+        
+        """
         tractfile = self.datamanager.get_support_file_location({'type': 'tracts_patches', 'id': self._field})
+        self._tract_masks = {}
         try:
-            self._tracts = self.read_hsc_tracts(tractfile)
-        except:
+            tracts = HSCSurvey._parse_tractfile(tractfile)
+            self._tracts = HSCSurvey._parse_tractdata(tracts)
+        except Exception as e:
             logging.error("Unable to read in tract data for HSC field {}".format(self._field))
+            traceback.print_tb(e.__traceback__)
             return
+
+    def _get_tract_mask(self, id):
+        try:
+            mask = self._tract_masks[id]
+        except:
+            mask = self._catalog['tract'] == id
+            self._tract_masks.update({id: mask})
+        return mask
+
+    def _init_tracts(self, *args, **kwargs):
+        for tract, region in self._tracts.items():
+            self._catalog.add_subregion(tract, region)
 
     def _load_catalog_data(self, *args, **kwargs):
         """
         Returns catalog for a given HSC field
         """
         file = self.datamanager.get_file_location({'field': self._field, 'datatype': 'catalog'})
+        self._cached_catalogs = {}
         if file:
             print("Reading in catalog for HSC field {}".format(self._field))
-            data = pd.read_csv(file)
-            cat = hsc_catalog(data)
-            self._catalog =  cat
+
+            catalog = pd.read_csv(file)
+            self._catalog = hsc_catalog(catalog)
         else:
             logging.error("Unable to locate catalog file for HSC field {}".format(self._field))
 
     def _load_starmasks(self, *args, **kwargs):
+        """
+        Loads the bright star masks for the given field.
+        Doesn't actually read the files in until they are needed
+        Because the astropy Regions package is quite slow
+        """
         logging.info("Reading in star masks for HSC field {}".format(self._field))
-        logging.info("This may take a while")
-
         mask_location = self.datamanager.get_file_location({'field': 'global', 'datatype': 'starmask'})
         paths = {}
         for tract in self._tracts.keys():
+            try:
+                wanted = tract in kwargs['tracts']
+                if not wanted:
+                    continue
+            except:
+                continue
             mask_path = os.path.join(mask_location, str(tract))
             if not os.path.exists(mask_path):
                 logging.warnning("Unable to find bright star masks for HSC tract {}".format(tract))
@@ -86,16 +146,12 @@ class HSCSurvey(Survey):
         starmasks = {}
         for tract, path in paths.items():
             patch_files = [os.path.join(path, file) for file in os.listdir(path) if file.endswith(band + '.reg')]
-            starmasks.update({tract: lambda files=patch_files: self._read_patch_maskfiles(files)})
+            f = self._exec.submit(self._read_patch_maskfiles, patch_files)
+            starmasks.update({tract: f})
+        
         self._starmasks = hsc_mask(starmasks)
 
 
-    @staticmethod
-    def read_hsc_tracts(tractfile):
-        tracts = HSCSurvey._parse_tractfile(tractfile)
-        regions = HSCSurvey._parse_tractdata(tracts)
-        return regions
-    
     @staticmethod
     def _parse_tractfile(tractfile):
         tracts = {}
@@ -144,9 +200,21 @@ class HSCSurvey(Survey):
             output.update({name: region_obj})
         return output
 
-    
+    @staticmethod
+    def _get_patch_from_filename(filename):
+        fname = os.path.basename(filename)
+        patch = re.search(r"[0-9],[0-9]", fname)
+        patch = patch.group()
+        data = tuple(int(p) for p in patch.split(','))
+        if len(data) == 2:
+            return data        
+
     @staticmethod
     def _patch_tuple_to_int(patch_tuple):
+        """
+        Takes in a patch ID as a tuple and turns it into an int.
+        This int can be used to look up objects in the catalof
+        """
         if patch_tuple[0] == 0:
             return patch_tuple[1]
         else:
@@ -167,14 +235,16 @@ class HSCSurvey(Survey):
     @staticmethod
     def _parse_field_mask(maskdata):
         pass
-            
-    def _read_patch_maskfiles(self, paths):
+
+    @staticmethod     
+    def _read_patch_maskfiles(paths):
 
         patchdata = {}
         for file in paths:
             try:
                 starmask_obj = RegStarMask.from_file(file, None)
-                patch_name = self._get_patch_from_filename(file)
+                patch_tuple = HSCSurvey._get_patch_from_filename(file)
+                patch_name = HSCSurvey._patch_tuple_to_int(patch_tuple)
                 patchdata.update({patch_name: starmask_obj})
             except Exception as e:
                 print(e)
@@ -182,72 +252,77 @@ class HSCSurvey(Survey):
                 
         return patchdata
 
-
-    def load_tracts(self, field):
-        tractfile = self.datamanager.get_support_file_location({'type': 'tracts_patches', 'id': field})
-        try:
-            self._tracts = self.read_hsc_tracts(tractfile)
-        except:
-            logging.error("Unable to read in tract data for HSC field {}".format(field))
-            return
     
-    def _get_patch_from_filename(self, filename):
-        fname = os.path.basename(filename)
-        patch = re.search(r"[0-9],[0-9]", fname)
-        patch = patch.group()
-        data = tuple(int(p) for p in patch.split(','))
-        if len(data) == 2:
-            return data        
-
 
 class hsc_catalog(SkyCatalog2D):
-    def __init__(self, cat):
-        super().__init__(cat)
     
-    def init_tracts(self, tracts):
-        self._tracts = tracts
+    def __init__(self, cat):
         try:
-            tracts = self._cat.tract.unique()
+            self._tract_names = cat['tract'].unique()
         except:
-            logging.error("The HSC catalog does not contain data about "\
-                          "which tract each object is in!")
-        self._tract_masks = {}
-        for tract_id in tracts:
-            mask = self._cat.tract == tract_id
-            self._tract_masks.update({tract_id: mask})
+            logging.warning("Unable to initialize catalog tracts")
+        super().__init__(cat)
 
-    def get_objects_in_region(self, region):
-        """
-        Overload of the base method for HSC data.
-        This basically just makes the computation simpler by first filtering by tract
-        And then actually applying the region.
-        """
-        overlap = []
-        for tract_id, tract_region in self._tracts():
-            if tract_region.overlaps(region):
-                overlap.append(tract_id)
-        
-        if len(overlap) == 0:
-            logging.error("Input region did not overlap with any tracts in this field")
-            return
-        
+    def _init_subregion(self, name, *args, **kwargs):
+        if name in self._cat['tract'].unique():
+            mask = self._cat['tract'] == name
+            try:
+                self._subregions[name]['mask'] = mask
+                return mask
+            except:
+                logging.error("Unable to initialize mask for subregion {}".format(name))
         else:
-            mask = self._tract_masks[overlap[0]]
-            for tract_id in overlap[1:]:
-                mask = mask | self._tract_masks[tract_id]
-        
-        return self[mask]
+            return super()._init_subregion(name)
+    def filter_by_subregions(self, subregions):
+        if type(subregions) == list:
+            return super().filter_by_subregions(subregions)
+        elif type(subregions) == dict:
+            conditions = []
+            for tract_id, patches in subregions.items():
+                condition = {'tract': [tract_id], 'patch': patches}
+                conditions.append(condition)
+            return super().filter_by_columns(conditions)
 
 class hsc_mask(StarMaskCollection):
+
+
     def __init__(self, masks):
-        self._masks = masks
+        super().__init__(masks)
     
-    @abstractmethod
-    def mask_catalog(self, catalog, region):
-        pass
+    
+
+    def mask_catalog(self, catalog, region, patches):
+        all_masks = []
+        for tract_id, patches in patches.items():
+            try:
+                tract_mask = self._masks[tract_id]
+            except Exception as e:
+                logging.warning("No masks found for tract {}".format(tract_id))
+                return
+            
+            try:
+                mask = tract_mask.result()
+                self._masks[tract_id] = mask
+            except:
+                mask = tract_mask
+            
+            for patch_id in patches:
+                try:
+                    all_masks.append(mask[patch_id])
+                except Exception as e:
+                    print(e)
+                    logging.warning("Unable to find bright star mask for tract {} patch {}".format(tract_id, patch_id))
+
+        final_mask = np.array([True]*len(catalog))
+
+        for mask in all_masks:
+
+            is_masked = mask.get_bool_region_mask(catalog, region)
+            final_mask = final_mask & is_masked
+
+        return catalog.from_dataframe(catalog[final_mask])            
+            
     
     def mask_external_catalog(self, catalog, region):
         pass
-
-if __name__ == "__main__":
-    hsc = HSCSurvey("W02")
+    

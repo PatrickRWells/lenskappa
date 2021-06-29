@@ -12,9 +12,8 @@ def add_surveydata(args):
     parser.add_argument('data', type=str, nargs='*')
     argdata = parser.parse_args(args)
     try:
-        survey_cls = getattr(lenskappa.surveys, argdata.survey_name[0])
-        survey = survey_cls()
-    except:
+        data = SurveyDataManager(argdata.survey_name[0])
+    except Exception as e:
         logging.error("Couldn't find survey {}".format(argdata.survey_name[0]))
         return
     if argdata.show_input:
@@ -23,7 +22,7 @@ def add_surveydata(args):
         args[0] = 'add'
         input_args = args
     
-    survey.datamanager.parse_cmd_input(input_args)
+    data.parse_cmd_input(input_args)
 
 
 

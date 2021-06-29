@@ -1,4 +1,5 @@
 from astropy.coordinates.sky_coordinate import SkyCoord
+from numpy.lib.polynomial import poly
 import pandas as pd
 import numpy as np
 from astropy import wcs, coordinates, units
@@ -10,6 +11,7 @@ import shapely
 from shapely.geometry import geo
 import toml
 from abc import ABCMeta, abstractmethod
+from lenskappa.region import CircularSkyRegion, SkyRegion
 
 def require_points(fn):
     """
@@ -19,6 +21,8 @@ def require_points(fn):
     def wrapper(self, *args, **kwargs):
         if not self._points_initialized:
             self._init_points()
+        else:
+            print("didn't have to")
         return fn(self, *args, **kwargs)
     return wrapper
 
@@ -81,6 +85,8 @@ class Catalog(metaclass=ABCMeta):
     def __str__(self):
         return self._cat.__str__()
 
+    def get_dataframe(self):
+        return self._cat
 
     @classmethod
     def read_csv(cls, file, config = None, *args, **kwargs):
@@ -98,6 +104,9 @@ class Catalog(metaclass=ABCMeta):
         except:
             logging.error("Pandas could not read file {}".format(file))
             return None
+    @classmethod
+    def from_dataframe(cls, *args, **kwargs):
+        return cls(*args, **kwargs)
 
     def load_params(self, input_map, *args, **kwargs):
         """
@@ -170,8 +179,15 @@ class Catalog2D(Catalog):
         super().__init__(cat, partypes=needed_parameter_types, *args, **kwargs)
         self._points_initialized = False
         self._subregions = {}
+        self._unions = {}
 
-    def add_subregion(self, name, polygon, *args, **kwargs):
+
+    def get_points(self):
+        if not self._points_initialized:
+            self._init_points()
+        return self._points
+
+    def add_subregion(self, name, reg, *args, **kwargs):
         """
         Adds a subregion to the catalog
         This is mostly just a convinient way of subdividing catalog data
@@ -181,13 +197,14 @@ class Catalog2D(Catalog):
             polygon <shapely.geometry.Polygon>: Polygon defining the region
 
         """
-        polytype = type(polygon)
-        if polytype in [geometry.Polygon, geometry.Point]:
-            self._subregions.update({name: {'poly': polygon, 'type': polytype } } )
+        regtype = type(reg)
+        if regtype in [SkyRegion, CircularSkyRegion]:
+            self._subregions.update({name: {'region': reg} } )
         else:
-            logging.error("Tried to add a subregion, but the region was not a polygon")
+            logging.error("Tried to add a subregion, but the region was not a polygon")    
 
-    @require_validation(params=['x', 'y'])
+
+    @require_points
     def filter_by_subregion(self, name, *args, **kwargs):
         """
         Filters data by a particular subregion.
@@ -199,10 +216,52 @@ class Catalog2D(Catalog):
         if name not in self._subregions.keys():
             logging.error("Subregion {} does not exist".format(name))
             return
+        
+        try:
+            mask = self._subregions[name]['mask']
+        except:
+            mask = self._init_subregion[name]
 
-        if not self._subregions[name]['mask']:
-            self._init_subregion(name)
-        return self._subregions[name]['mask']
+        return self.from_dataframe(cat=self._cat[mask])
+    
+    def filter_by_columns(self, conditions, *args, **kwargs):
+        """
+        Filters the catalog by certain columns.
+        Shold be key-value pairs, where the key is the column
+        And the value is a list of acceptable values
+        """
+        final_mask = np.array([False]*len(self))
+        for data in conditions:
+            sub_mask = np.array([True]*len(self))
+            for column, keys in data.items():
+                sub_mask = sub_mask & self._cat[column].isin(keys)
+
+            final_mask = final_mask | sub_mask
+        
+        cat = self._cat[final_mask]
+        return self.from_dataframe(cat=cat)
+
+
+    @require_points
+    def filter_by_subregions(self, subregions, *args, **kwargs):
+
+        masks = []
+        for region_id in subregions:
+            try:
+                subregion = self._subregions[region_id]
+            except:
+                logging.error("Subregion {} does not exist. Skipping...")
+                continue
+            try:
+                masks.append(subregion['mask'])
+            except:
+                masks.append(self._init_subregion(region_id))
+        if masks:
+            final_mask = np.any(masks, axis=0)
+            return self.from_dataframe(cat=self._cat[final_mask])
+        else:
+            logging.error("None of the subregions were found.")
+
 
     @require_validation(params=['x', 'y'])
     def _init_points(self):
@@ -210,27 +269,32 @@ class Catalog2D(Catalog):
         Initialize a set of shapely points and store them in the catalog
         TODO: Stress-test with millions of points
         """
+
+        logging.info("Initializing catalog points")
         x = self._cat[self._parmap['x']]
         y = self._cat[self._parmap['y']]
-        self._points = [geometry.Point(xy) for xy in list(zip(x,y))]
-        self._cat['mask'] = self._points
+        #This line takes quite a while for large catalogs
+        point_objs = [geometry.Point(xy) for xy in list(zip(x,y))]
+        self._points = pd.Series(point_objs)
         self._points_initialized = True
 
-    @require_validation(params=['x', 'y'])
+    @require_points
     def _init_subregion(self, name):
         """
         Initializes subregion by finding which points fall inside of it
         Results are stored as a mask that can be applied to _cat
         Method assumes that _init_points has already been run
         """
-        poly = self._subregions[name]['poly']
+        poly = self._subregions[name]
         #Type validation of polygons is handled when the subregion is created
         mask = [point.within(poly) for point in self._points]
         initial_len = len(self._cat)
         final_len = len(self._cat[mask])
         logging.info("Region {} masks out {} objects".format(name, initial_len-final_len))
         self._subregions[name]['mask'] = mask
-    
+        return mask
+
+    @require_points
     def get_objects_in_region(self, region):
         #Note, this is a very simple implementationt that will be inefficient for very large regions
         #It is recommended that you override this for larger catalogs 
@@ -251,11 +315,18 @@ class SkyCatalog2D(Catalog2D):
         In adition to regular points, this method inits SkyCoords
         """
 
-        self._skypoints = SkyCoord(self._cat[self._parmap['x']], self._cat[self._parmap['y']], unit="deg")
+        #this is very slow. Need to work out a different solution
         super()._init_points()
 
+    def get_coords(self):
+        try:
+            return self._skypoints
+        except:
+            self._skypoints = SkyCoord(self._cat[self._parmap['x']], self._cat[self._parmap['y']], unit="deg")
+            return self._skypoints
 
-    def add_subregion(self, name, polytype = 'polygon', *args, **kwargs):
+
+    def add_subregion(self, name, region, *args, **kwargs):
         """
         Shapely does not represent circular regions exactly, so this method
         allows for adding circular regions with a simple center-radius syntax
@@ -264,15 +335,8 @@ class SkyCatalog2D(Catalog2D):
 
         If no polytype is passed, assume it is a shapely.geometry.polygon
         """
-        if polytype == 'polygon':
-            super().add_subregion(name, *args, **kwargs)
-        elif polytype == 'circle':
-            try:
-                center = kwargs['center']
-                radius = kwargs['radius']
-                self._add_circular_subregion(name, center, radius)
-            except:
-                logging.error("Expected a radius and a center, but couldn't find them.")
+        self._polytype = region.get_type()
+        super().add_subregion(name, region)
 
     def _add_circular_subregion(self, name, center, radius):
         """Internal function for initializing circular subregion"""
@@ -292,30 +356,18 @@ class SkyCatalog2D(Catalog2D):
         payload = {'polytype': 'circle', 'center': input_center, 'radius': input_radius}
         self._subregions.update({name: payload})
 
-    @require_points
-    def filter_by_subregion(self, name, *args, **kwargs):
-        """
-        Wrapper to deal with circular subregions implemented as center-radius pairs
-        with SkyCoords.
-
-        Otherwise just passes to the underlying Catalog2D method
-        """
-        try:
-            region = self._subregions[name]
-        except:
-            logging.error("Subregion {} does not exist".format(name))
-        try:
-            mask = region['mask']
-            return self._cat[mask]
-        except:
-            if region['polytype'] == 'circle':
-                self._init_circular_subregion(name)
-                return self._cat[self._subregions[name]['mask']]
-            else:
-                return super().filter_by_subregion(name, *args, **kwargs)
-
     def _init_circular_subregion(self, name):
         region = self._subregions[name]
         distances = region['center'].separation(self._skypoints)
         mask = distances <= region['radius']
         self._subregions[name]['mask'] = mask
+
+    def get_objects_in_region(self, region):
+        if type(region) == CircularSkyRegion:
+            center, radius = region.get_exact()
+            coords = self.get_coords()
+            mask = (coords.separation(center) <= radius)
+            item = self.from_dataframe(self._cat[mask])
+            return item
+        else:
+            return super().get_objects_in_region(region)

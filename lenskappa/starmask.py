@@ -6,6 +6,7 @@ from shapely import geometry, affinity
 import astropy.units as u
 import pandas as pd
 from copy import deepcopy
+import numpy as np
 
 class StarMask(metaclass=ABCMeta):
 
@@ -39,6 +40,12 @@ class StarMask(metaclass=ABCMeta):
         Use when masking a catalog that falls INSIDE this bright star mask
         """
         pass
+
+    def get_bool_region_mask(self, catalog, region):
+        """
+        Same as above, except it returns the boolean mask instead of the catalog itself.
+        
+        """
     
     @abstractmethod
     def mask_external_catalog(self, catalog, region):
@@ -149,9 +156,21 @@ class RegStarMask(StarMask):
         
         return new_mask
 
+    def get_bool_region_mask(self, catalog, region):
+        cat_points = catalog.get_points()
+        masks_in_region = [reg for reg in self._shapely_regdata if region.intersects(reg)]
+        mask = np.array([False]*len(catalog))
+        for index, point in enumerate(cat_points):
+            if not mask[index]:
+                for submask in masks_in_region:
+                    if submask.contains(point):
+                        mask[index] = True
+                        break
+        return mask
+
     def mask_catalog(self, catalog, region):
         pass
-    
+
     def mask_external_catalog(self, catalog, region):
         pass
 
@@ -161,23 +180,25 @@ class FitsStarMask(StarMask):
     # TODO
 
 
-class StarMaskCollection(metaclass=ABCMeta):
+class StarMaskCollection:
+
     def __init__(self, masks):
         """
         Container class for collections of masks.
         Should contain methods that allow it to be used as if it was a mask
         """
         self._masks = masks
-    
-    @abstractmethod
-    def mask_catalog(self, catalog, region):
+
+
+    def mask_catalog(self, catalog, region, subregions = None):
+        input_cat = catalog
+        if subregions is not None:
+            for subregion in subregions:
+                input_cat = self._masks[subregion].mask_catalog(input_cat)
+        
         pass
     
-    @abstractmethod
     def mask_external_catalog(self, catalog, region):
         pass
 
-class StarMaskCollection:
-    def __init__(self, masks):
-        self._masks = masks
     

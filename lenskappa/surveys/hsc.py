@@ -35,9 +35,10 @@ import astropy.units as u
 class HSCSurvey(Survey):
     
     datamanager = SurveyDataManager("hsc")
-    def __init__(self, field, *args, **kwargs):
+    def __init__(self, field, frame=None, *args, **kwargs):
         self._field = field
         self._exec = futures.ProcessPoolExecutor()
+        self._frame = frame
         super().__init__(*args, **kwargs)
         #setup is called automatically by the superclass constructor
 
@@ -47,7 +48,33 @@ class HSCSurvey(Survey):
         self._load_catalog_data(*args, **kwargs)
         self._init_tracts(*args, **kwargs)
         tract_objs = list(self._tracts.values())
-        self._region = SkyRegion.union(tract_objs)
+        if self._frame is not None:
+            self._region = self._frame
+        else:
+            self._region = SkyRegion.union(tract_objs)
+
+        try:
+            bind = kwargs['bind']
+            if bind:
+                logging.info("Binding sky region to catalog")
+                self._bind()
+        except Exception as e:
+            print(e)
+
+    def _bind(self):
+        """
+        Shrinks the survey region to remove space that is
+        not filled by the catalog.
+        Should really only be used for testing purposes on
+        small regions 
+        """
+        points = self._catalog.get_points()
+        multipoint = geometry.MultiPoint(points.to_numpy())
+        bounds = multipoint.bounds
+        box = geometry.box(*bounds)
+        self._region = SkyRegion(box.centroid, box)
+
+
 
     def _get_patch_overlaps(self, region):
         tracts = []
@@ -80,7 +107,7 @@ class HSCSurvey(Survey):
         if len(unmasked_catalog) == 0:
             logging.error("Returned an empty dataframe")
             return unmasked_catalog
-
+        unmasked_catalog = self.check_frame(region, unmasked_catalog)
         if masked:
             return self._starmasks.mask_catalog(unmasked_catalog, region, patches)
         else:
@@ -90,13 +117,19 @@ class HSCSurvey(Survey):
         if not ( isinstance(external_region, SkyRegion) and isinstance(internal_region, SkyRegion) ):
             logging.error("Expected SkyRegion objects in mask_external_catalog")
             return None
+        internal_area = internal_region.area
+        external_area = external_region.area
+        ratio = external_area/internal_area
+        if ratio > 1.0:
+            ratio = 1/ratio
 
-        if not internal_region.area == external_region.area:
+        if ratio <= 0.99:
             logging.warning("Trying to put together two regions that are not the same size!"\
                             "I will only be able to center them on each other")
         
         patches = self._get_patch_overlaps(internal_region)
         new_catalog = self._starmasks.mask_external_catalog(external_catalog, external_region, internal_region, patches=patches, *args, **kwargs)
+        new_catalog = self.check_frame(internal_region, new_catalog)
         return new_catalog
 
     
@@ -110,7 +143,7 @@ class HSCSurvey(Survey):
         self._tract_masks = {}
         try:
             tracts = HSCSurvey._parse_tractfile(tractfile)
-            self._tracts = HSCSurvey._parse_tractdata(tracts, *args, **kwargs)
+            self._tracts = self._parse_tractdata(tracts, *args, **kwargs)
         except Exception as e:
             logging.error("Unable to read in tract data for HSC field {}".format(self._field))
             traceback.print_tb(e.__traceback__)
@@ -135,10 +168,11 @@ class HSCSurvey(Survey):
         file = self.datamanager.get_file_location({'field': self._field, 'datatype': 'catalog'})
         self._cached_catalogs = {}
         if file:
-            print("Reading in catalog for HSC field {}".format(self._field))
+            print("Reading in catalog for HSC field {}. This may take a while".format(self._field))
 
             catalog = pd.read_csv(file)
             self._catalog = hsc_catalog(catalog, *args, **kwargs)
+            print("Done reading in catalog.")
         else:
             logging.error("Unable to locate catalog file for HSC field {}".format(self._field))
 
@@ -164,7 +198,7 @@ class HSCSurvey(Survey):
         starmasks = {}
         for tract, path in paths.items():
             patch_files = [os.path.join(path, file) for file in os.listdir(path) if file.endswith(band + '.reg')]
-            f = self._exec.submit(self._read_patch_maskfiles, patch_files)
+            f = self._exec.submit(self._read_patch_maskfiles, patch_files, tract)
             starmasks.update({tract: f})
         
         self._starmasks = hsc_mask(starmasks)
@@ -200,8 +234,7 @@ class HSCSurvey(Survey):
                         tracts[tract_num]['subregions'][patch_val].update({'center': (float(nums[-2]), float(nums[-1]))})
         return tracts
     
-    @staticmethod
-    def _parse_tractdata(tractdata, *args, **kwargs):
+    def _parse_tractdata(self, tractdata, *args, **kwargs):
         output = {}
         try:
             wanted_tracts = kwargs['tracts']
@@ -213,6 +246,13 @@ class HSCSurvey(Survey):
             corners = tract['corners']
             center = tract['center']
             polygon = HSCSurvey._parse_polygon_corners(center, corners)
+            if self._frame is not None:
+                if  self._frame._polygon.disjoint(polygon):
+                    logging.info("Skipping tract {} based on input frame.".format(name))
+                    continue
+                else:
+                    logging.info("Including tract {}".format(name))
+
             region_obj = SkyRegion(center, polygon)
             for patchname, patch in tract['subregions'].items():
                 patch_corners = patch['corners']
@@ -261,7 +301,7 @@ class HSCSurvey(Survey):
         pass
 
     @staticmethod     
-    def _read_patch_maskfiles(paths):
+    def _read_patch_maskfiles(paths, tract = None):
 
         patchdata = {}
         for file in paths:
@@ -273,7 +313,8 @@ class HSCSurvey(Survey):
             except Exception as e:
                 print(e)
                 logging.warning("Couldn't find starmask at {}".format(file))
-                
+        if tract is not None:
+            print("Finished loading bright star masks for tract {}".format(tract))        
         return patchdata
 
     
@@ -357,11 +398,14 @@ class hsc_mask(StarMaskCollection):
         except:
             logging.error("Expected a list of patches associated with this region")
             return
-
+        points = external_catalog.get_points()
+        x = [point.x for point in points]
+        y = [point.y for point in points]
+        import matplotlib.pyplot as plt
         external_center = external_region.center
         internal_center = internal_region.center
         dist = external_center.separation(internal_center)
         pa = external_center.position_angle(internal_center)
-        catalog = external_catalog.rotate(pa, dist)
+        catalog = external_catalog.rotate(external_center, internal_center)
         masked_catalog = self.mask_catalog(catalog, internal_region, patches)
         return masked_catalog

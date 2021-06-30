@@ -1,4 +1,4 @@
-from astropy.coordinates.sky_coordinate import SkyCoord
+from astropy.coordinates.sky_coordinate import SkyCoord, SkyOffsetFrame
 from numpy.lib.polynomial import poly
 import pandas as pd
 import numpy as np
@@ -21,8 +21,6 @@ def require_points(fn):
     def wrapper(self, *args, **kwargs):
         if not self._points_initialized:
             self._init_points()
-        else:
-            print("didn't have to")
         return fn(self, *args, **kwargs)
     return wrapper
 
@@ -237,6 +235,34 @@ class Catalog2D(Catalog):
 
         return self.from_dataframe(cat=self._cat[mask], parmap=self._parmap)
     
+    def add_column_bound(self, column, min = False, max = False):
+        """
+        Remove objects outside of a particular bound, based on value
+        """
+        try:
+            colname = self._parmap[column]
+        except:
+            colname = column
+        try:
+            col = self._cat[colname]
+        except:
+            logging.error("Tried to filter catalog by column {}, but the column doesn't exist")
+
+        if not (min or max) and min !=0 and max !=0:
+            logging.error("You must provide a minimum or maximum to place bounds on the catalog!")
+            return
+        
+        mask = np.array([True]*len(self._cat))
+        if min or min == 0:
+            mask = mask & (col >= min)
+        if max or max == 0:
+            mask = mask & (col <= max)
+        
+        self._cat.drop(self._cat[~mask].index, inplace=True)
+
+
+
+
     def filter_by_columns(self, conditions, *args, **kwargs):
         """
         Filters the catalog by certain columns.
@@ -350,16 +376,18 @@ class SkyCatalog2D(Catalog2D):
         self._polytype = region.get_type()
         super().add_subregion(name, region)
 
-    def rotate(self, pa, dist, *args, **kwargs):
+    def rotate(self, original, new, *args, **kwargs):
         """
         Rotates a catalog on the sky
         """
         if len(self) > 30000:
             logging.error("Tried to rotate this catalog, but its too big!")
             return
-            
         coords = self.get_coords()
-        new_coords = coords.directional_offset_by(pa, dist)
+        separations = original.separation(coords)
+        pas = original.position_angle(coords)
+        new_coords = new.directional_offset_by(pas, separations)
+
         new_df = deepcopy(self._cat)
         new_df[self._parmap['x']] = new_coords.ra.degree
         new_df[self._parmap['y']] = new_coords.dec.degree

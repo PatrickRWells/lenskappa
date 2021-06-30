@@ -1,4 +1,5 @@
 from abc import ABCMeta, abstractmethod
+import lenskappa
 import logging
 from astropy.coordinates.sky_coordinate import SkyCoord
 import astropy.units as u
@@ -24,7 +25,9 @@ class Region(metaclass=ABCMeta):
         Adds a subreegion to the current region.
         This class also supports adding sub-subregions through the "propogate_subregion" method
         Subregions must be fuly enclosed by their parent regions. This can be overriden, but do so at your
-        own peril
+        own peril.
+        Honestly, this should probably just be a subclass of a Shapely base object
+
         Parameters:
             name: Name for the subregion. Can be anything that works as a dictionary key
             center: Tuple with (x,y) coordinates of the geometric center or the region
@@ -168,8 +171,11 @@ class SkyRegion(Region):
         self._sampler = np.random.default_rng(int(time.time()))
 
     
-    def contains(self, point):
-        return self._polygon.contains(point)
+    def contains(self, obj):
+        if type(obj) == CircularSkyRegion:
+            return self._polygon.contains(obj._polygon)
+        elif type(obj) == geometry.Point:
+            return self._polygon.contains(obj)
     
 class CircularSkyRegion(SkyRegion):
 

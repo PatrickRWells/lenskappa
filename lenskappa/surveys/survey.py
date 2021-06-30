@@ -1,4 +1,6 @@
+from lenskappa.region import Region, SkyRegion
 import os
+from astropy.extern.configobj.validate import is_option
 
 from numpy.core.numeric import full
 import lenskappa
@@ -10,7 +12,7 @@ from pydoc import locate
 from copy import copy
 import hashlib
 from abc import ABCMeta, abstractmethod
-
+import numpy as np
 
 class Survey(metaclass=ABCMeta):
     """
@@ -50,6 +52,19 @@ class Survey(metaclass=ABCMeta):
             catalog = self._catalog
         except:
             logging.error("Now catalog found for this survey")
+    
+    def frame(self, region):
+        """
+        Sets a new region for the survey.
+        Designed for cases where you want to restrict where the code looks
+        For example, if part of your survey is not covered in all the bands you want
+        """
+        if not isinstance(region, SkyRegion):
+            logging.error("Expected a sky region object for the frame!")
+            return
+        else:
+            self._region = region
+
 
     @abstractmethod
     def setup(self, *args, **kwargs):
@@ -85,6 +100,32 @@ class Survey(metaclass=ABCMeta):
         
         """
         pass
+
+    def add_column_bound(self, *args, **kwargs):
+        """
+        I'd eventually like to add a more elegant way to deal with these kinds of things
+        """
+        self._catalog.add_column_bound(*args, **kwargs)
+
+
+    def check_frame(self, region, catalog, *args, **kwargs):
+        """
+        Checks to see if any objects fall outside the defined survey region
+        And removes them from the catalog if so.
+        """
+        if self._region.contains(region):
+            
+            #If the input region falls completely within the survey region
+            #Just return the original caatalog.
+            
+            return catalog
+
+        points = catalog.get_points()
+        mask = np.array([self._region.contains(point) for point in points])
+        newcat = catalog.apply_catalog_mask(mask)
+        return newcat
+
+
     
 
 
@@ -102,6 +143,7 @@ class SurveyDataManager:
         """
         self._cmds = ['add', 'remove']
         self._get_survey_config(survey)
+        
     def __del__(self):
         pass
     
@@ -360,5 +402,3 @@ class SurveyDataManager:
                 
         return fn(arg_dict)
     
-if __name__ == "__main__":
-    manager = SurveyDataManager('hsc')

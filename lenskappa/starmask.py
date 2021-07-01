@@ -1,12 +1,12 @@
-from abc import ABCMeta, abstractmethod
 import logging
-from astropy.coordinates import SkyCoord, SkyOffsetFrame
 import regions
-from shapely import geometry, affinity
 import astropy.units as u
 import pandas as pd
-from copy import deepcopy
 import numpy as np
+
+from shapely import geometry, affinity
+from astropy.coordinates import SkyCoord
+from abc import ABCMeta, abstractmethod
 
 class StarMask(metaclass=ABCMeta):
 

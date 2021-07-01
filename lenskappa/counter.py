@@ -1,19 +1,17 @@
-import parser
 import numpy as np
-from pandas.core.indexes import multi
 from shapely import geometry
-from shapely.geometry.base import exceptNull
-from lenskappa.catalog import Catalog
-from lenskappa.region import Region, SkyRegion
-from lenskappa.weighting import weighting
-from lenskappa.surveys.survey import Survey
 import multiprocessing as mp
 import os
 import pandas as pd
 import math
-
 import logging
 import astropy.units as u
+
+from lenskappa.catalog import Catalog
+from lenskappa.region import Region, SkyRegion
+from lenskappa.weighting import weighting
+from lenskappa.surveys.survey import Survey
+
 
 class Counter:
 

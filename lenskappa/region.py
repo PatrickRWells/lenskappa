@@ -1,16 +1,11 @@
 from abc import ABCMeta, abstractmethod
-import lenskappa
-import logging
 from astropy.coordinates.sky_coordinate import SkyCoord
+from shapely import geometry
+
+import logging
 import astropy.units as u
 import numpy as np
-import math
-from numpy.lib.arraysetops import isin
-from numpy.lib.polynomial import poly
-from shapely import geometry
 import time
-import matplotlib.pyplot as plt
-from shapely.geometry import geo
 
 class Region(metaclass=ABCMeta):
     def __init__(self, center, polygon, *args, **kwargs):

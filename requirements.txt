@@ -1,0 +1,6 @@
+numpy >= 1.19
+pandas >= 1.2
+shapely >= 1.7.1
+astropy >= 4.2
+toml >= 0.10.1
+regions >= 0.4

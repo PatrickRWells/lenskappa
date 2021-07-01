@@ -1,18 +1,18 @@
-from lenskappa.region import Region, SkyRegion
-import os
-from astropy.extern.configobj.validate import is_option
+from abc import ABCMeta, abstractmethod
+from copy import copy
 
-from numpy.core.numeric import full
-import lenskappa
+
+import os
 import logging
 import toml
 import logging
 import argparse
-from pydoc import locate
-from copy import copy
 import hashlib
-from abc import ABCMeta, abstractmethod
 import numpy as np
+
+import lenskappa
+from lenskappa.region import SkyRegion
+
 
 class Survey(metaclass=ABCMeta):
     """

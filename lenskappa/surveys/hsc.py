@@ -1,35 +1,19 @@
-from sys import intern
-from numpy.lib.arraysetops import isin
-from numpy.lib.polynomial import poly
-import re
-import shapely
-from lenskappa import region
-from lenskappa import starmask
-from lenskappa.surveys.survey import Survey, SurveyDataManager
-from lenskappa.region import CircularSkyRegion, SkyRegion
-from lenskappa.catalog import SkyCatalog2D, require_points, require_validation
-from lenskappa.starmask import StarMaskCollection, RegStarMask, StarMask
-import threading
-import re
-from astropy.coordinates import SkyCoord
-from astropy import wcs
-import astropy.units as u
 from shapely import geometry
+from concurrent import futures
+
 import pandas as pd
 import numpy as np
 import math
 import os
-import time
-import functools
-from copy import copy
 import logging
-import toml
 import operator
-from abc import ABCMeta, abstractmethod
-from concurrent import futures
 import traceback
-import astropy.units as u
+import re
 
+from lenskappa.surveys.survey import Survey, SurveyDataManager
+from lenskappa.region import SkyRegion
+from lenskappa.catalog import SkyCatalog2D
+from lenskappa.starmask import StarMaskCollection, RegStarMask
 
 
 class HSCSurvey(Survey):
@@ -58,8 +42,8 @@ class HSCSurvey(Survey):
             if bind:
                 logging.info("Binding sky region to catalog")
                 self._bind()
-        except Exception as e:
-            print(e)
+        except:
+            pass
 
     def _bind(self):
         """

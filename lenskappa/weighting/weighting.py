@@ -2,14 +2,7 @@
 # This code is based on earlier code by CE Rusu. It is used to calculate weights for objects in a lens field. 
 
 import logging
-import pandas as pd
 import toml
-import numpy as np
-from astropy.table import Table
-from astropy.io import fits
-from astropy.wcs import WCS
-import astropy.units as u
-import time
 import lenskappa
 
 class weight:

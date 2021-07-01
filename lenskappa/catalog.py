@@ -1,15 +1,11 @@
-from astropy.coordinates.sky_coordinate import SkyCoord, SkyOffsetFrame
-from numpy.lib.polynomial import poly
 import pandas as pd
 import numpy as np
-from astropy import wcs, coordinates, units
 import astropy.units as u
-from shapely import geometry
-from copy import copy, deepcopy
 import logging
-import shapely
-from shapely.geometry import geo
-import toml
+
+from astropy.coordinates.sky_coordinate import SkyCoord
+from shapely import geometry
+from copy import deepcopy
 from abc import ABCMeta, abstractmethod
 from lenskappa.region import CircularSkyRegion, SkyRegion
 

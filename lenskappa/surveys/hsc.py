@@ -382,14 +382,9 @@ class hsc_mask(StarMaskCollection):
         except:
             logging.error("Expected a list of patches associated with this region")
             return
-        points = external_catalog.get_points()
-        x = [point.x for point in points]
-        y = [point.y for point in points]
-        import matplotlib.pyplot as plt
+
         external_center = external_region.center
         internal_center = internal_region.center
-        dist = external_center.separation(internal_center)
-        pa = external_center.position_angle(internal_center)
         catalog = external_catalog.rotate(external_center, internal_center)
         masked_catalog = self.mask_catalog(catalog, internal_region, patches)
         return masked_catalog

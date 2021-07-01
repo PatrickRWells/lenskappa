@@ -103,6 +103,19 @@ class Region(metaclass=ABCMeta):
 
 class SkyRegion(Region):
     def __init__(self, center, region, *args, **kwargs):
+        bounds = region.bounds
+        ras = np.array([bounds[0], bounds[2]])
+        decs = np.array([bounds[1], bounds[3]])
+        if not ( (ras > 0.0).all() and (ras <= 360.0).all() ):
+            logging.error("RAs must be between 0 and 360 degres, but got {}".format(ras))
+            return None
+
+        if not ( (decs >= -90.0).all() and (decs <= 90.0).all() ):
+            logging.error("Declinations must be between -90 and 90 degres, but got {}".format(decs))
+            return None
+
+
+
         super().__init__(center, region, *args, **kwargs)
         self._sample_type = "spherical"
     

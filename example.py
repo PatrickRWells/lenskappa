@@ -46,3 +46,6 @@ lens_region = CircularSkyRegion(center, aperture)
 #bright star masks into account when computing the number counts
 counter = Counter(lens_field, survey, lens_region, mask=True)
 counter.get_weight_ratios("all", output_file="lenskappa_test.csv", num_samples=1000, threads= 4, overwrite=True)
+#The first parameter in get_weight_ratios indicates which weights to compute
+#For now it's best to just leave this on all.
+ 

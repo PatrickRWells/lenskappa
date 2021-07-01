@@ -30,3 +30,20 @@ lenskappa_add_surveydata hsc W02 catalog /path/to/your/data/W02.csv
 ### Computing weighted number counts
 
 Once you have added your control field data, you can compute weight ratios for any system of interest. See example.py for an example of this.
+
+
+## Roadmap
+
+#### Immediate
+  - Update sampler to properly sample on a sphere, since some surveys are big enough for this to matter
+  - Update datamanger to store paths to data files in a different location than the data config
+#### Short term
+  - Add CFHTLens as a reference survey
+  - Add any other surveys that are needed for immediate work
+  - Complete implementation of multithreading for computing weighted number counts
+#### Medium term
+  - Improve documentation 
+  - Write unit tests
+  - Make error handling more robust
+#### Long term
+  - Add additional modules analysis past weighted number counts 

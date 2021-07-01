@@ -104,6 +104,7 @@ class Region(metaclass=ABCMeta):
 class SkyRegion(Region):
     def __init__(self, center, region, *args, **kwargs):
         super().__init__(center, region, *args, **kwargs)
+        self._sample_type = "spherical"
     
     @property
     def skycoord(self):
@@ -130,16 +131,10 @@ class SkyRegion(Region):
         try:
             size = aperture.to(u.deg)
         except:
-            logging.error("Attempted to tile the region, but the aperture does not have units")
+            logging.error("Attempted to draw a tile in the region, but the aperture does not have units")
             return False
-        
-        try:
-            sampler = self._sampler
-        except:
-            self._init_sampler()
-            sampler = self._sampler
-        
-        point_coords = sampler.uniform(self._low_sampler_range, self._high_sampler_range)
+                
+        point_coords = self._draw_sample()
         coord = SkyCoord(point_coords[0], point_coords[1], unit="deg")
         point = geometry.Point(point_coords)
         if not self._polygon.contains(point):
@@ -151,21 +146,48 @@ class SkyRegion(Region):
         
     def _init_sampler(self):
         """
-        Initialize the sampler for drawing regions
+        Initialize the sampler for drawing regions.
+        Currently, draws randomly off the surface of a sphere
         TODO: Test with iregularly-shaped region
         """
+
+        if self._sample_type == 'spherical':
+            self._init_spherical_sampler()
+        else:
+            logging.error("Currently, only spherical sampling is implemented")
+    
+    def _init_spherical_sampler(self):
         bounds = self._polygon.bounds
-        x1, x2 = bounds[0], bounds[2]
-        x_range = (min(x1, x2), max(x1, x2))
-        y1, y2 = bounds[1], bounds[3]
-        y_range = (min(y1, y2), max(y1, y2))
+        ra1,ra2 = bounds[0], bounds[2]
+        dec1, dec2 = bounds[1], bounds[3]
+        ra_range = (min(ra1, ra2), max(ra1, ra2)) 
+        dec_range = (min(dec1, dec2), max(dec1, dec2))
+        phi_range = np.radians(ra_range)
+        #Keeping everything in radians for simplicity
+        #Convert from declination to standard spherical coordinates
+        theta_range = (90. - dec_range[0], 90. - dec_range[1])
+        #Area element on a sphere is dA = d(theta)d(cos[theta])
+        #Sampling uniformly on the surface of a sphere means sampling uniformly
+        #Over cos theta
+        costheta_range = np.cos(np.radians(theta_range))
 
-        self._low_sampler_range = [x_range[0], y_range[0]]
-        self._high_sampler_range = [x_range[1], y_range[1]]
-
+        self._low_sampler_range = [phi_range[0], costheta_range[0]]
+        self._high_sampler_range = [phi_range[1], costheta_range[1]]
         self._sampler = np.random.default_rng(int(time.time()))
 
-    
+    def _draw_sample(self):
+        try:
+            sampler = self._sampler
+        except:
+            self._init_sampler()
+
+        if self._sample_type == "spherical":
+            vals = self._sampler.uniform(self._low_sampler_range, self._high_sampler_range)
+            ra = np.degrees(vals[0])
+            theta = np.degrees(np.arccos(vals[1]))
+            dec = 90 - theta
+            return (ra, dec)
+
     def contains(self, obj):
         if type(obj) == CircularSkyRegion:
             return self._polygon.contains(obj._polygon)

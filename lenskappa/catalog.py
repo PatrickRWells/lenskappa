@@ -108,9 +108,21 @@ class Catalog(metaclass=ABCMeta):
     def from_dataframe(cls, cat, *args, **kwargs):
         return cls(cat, *args, **kwargs)
     
-    def apply_catalog_mask(self, mask):
+    def apply_boolean_mask(self, mask):
         df = self._cat.loc[self._cat[mask].index]
         return self.from_dataframe(df, parmap=self._parmap)
+    
+    def replace_values_by_mask(self, mask, column, value):
+        """
+        Returns a new catalog where values that fall outside the mask
+        Are replaced with the given value.
+        """
+        df = self._cat.copy()
+        df.loc[~mask, column] = value
+        return self.from_dataframe(df, parmap=self._parmap)
+
+
+        
 
     def load_params(self, input_map, *args, **kwargs):
         """
@@ -273,7 +285,7 @@ class Catalog2D(Catalog):
 
             final_mask = final_mask | sub_mask
         
-        return self.apply_catalog_mask(final_mask)
+        return self.apply_boolean_mask(final_mask)
 
 
     @require_points
@@ -292,7 +304,7 @@ class Catalog2D(Catalog):
                 masks.append(self._init_subregion(region_id))
         if masks:
             final_mask = np.any(masks, axis=0)
-            return self.apply_catalog_mask(mask = final_mask)
+            return self.apply_boolean_mask(mask = final_mask)
         else:
             logging.error("None of the subregions were found.")
 
@@ -384,7 +396,7 @@ class SkyCatalog2D(Catalog2D):
         pas = original.position_angle(coords)
         new_coords = new.directional_offset_by(pas, separations)
 
-        new_df = deepcopy(self._cat)
+        new_df = self._cat.copy()
         new_df[self._parmap['x']] = new_coords.ra.degree
         new_df[self._parmap['y']] = new_coords.dec.degree
         new_catalog = self.from_dataframe(new_df, parmap=self._parmap)
@@ -424,7 +436,7 @@ class SkyCatalog2D(Catalog2D):
             self._cat['dist'] = distances
             mask = (distances <= radius)
             self._parmap.update({'r': 'dist'})
-            item = self.apply_catalog_mask(mask)
+            item = self.apply_boolean_mask(mask)
             return item
         else:
             return super().get_objects_in_region(region)

@@ -4,7 +4,7 @@ format = "txt"
 ids = "ref:data_config.meta.field.choices"
 
 [data_config.meta.field]
-choices = [ "W01", "W02", "W02_test", "W03", "W04", "W05", "W06", "W07", "global",]
+choices = [ "W01", "W02", "W03", "W04", "W05", "W06", "W07", "global",]
 help = "Which of the HSC fields this data corresponds to"
 nargs = 1
 required = true

@@ -10,14 +10,15 @@ import operator
 import traceback
 import re
 
-from lenskappa.surveys.survey import Survey, SurveyDataManager
+from lenskappa.surveys.survey import Survey
+from lenskappa import SurveyDataManager
 from lenskappa.region import SkyRegion
 from lenskappa.catalog import SkyCatalog2D
 from lenskappa.starmask import StarMaskCollection, RegStarMask
 
 
 class HSCSurvey(Survey):
-    
+
     datamanager = SurveyDataManager("hsc")
     def __init__(self, field, frame=None, *args, **kwargs):
         self._field = field
@@ -50,7 +51,7 @@ class HSCSurvey(Survey):
         Shrinks the survey region to remove space that is
         not filled by the catalog.
         Should really only be used for testing purposes on
-        small regions 
+        small regions
         """
         points = self._catalog.get_points()
         multipoint = geometry.MultiPoint(points.to_numpy())
@@ -70,7 +71,7 @@ class HSCSurvey(Survey):
                 patches.update({id: overlap_patches})
         if not tracts:
             logging.error("Region deos not overlap with any tracts.")
-        
+
         return patches
 
     def generate_cirular_tile(self, radius, *args, **kwargs):
@@ -83,7 +84,7 @@ class HSCSurvey(Survey):
         Parameters:
             region: shapely object defining the region of interest
             masked: whether to apply the bright star masks to the catalog first.
-        
+
         """
         patches = self._get_patch_overlaps(region)
         catalog = self._catalog.filter_by_subregions(patches)
@@ -110,18 +111,18 @@ class HSCSurvey(Survey):
         if ratio <= 0.99:
             logging.warning("Trying to put together two regions that are not the same size!"\
                             "I will only be able to center them on each other")
-        
+
         patches = self._get_patch_overlaps(internal_region)
         new_catalog = self._starmasks.mask_external_catalog(external_catalog, external_region, internal_region, patches=patches, *args, **kwargs)
         new_catalog = self.check_frame(internal_region, new_catalog)
         return new_catalog
 
-    
+
     def _load_tract_data(self, *args, **kwargs):
         """
         Loads data about the tracts and patches for the given HSC field
         Used to split up data, making it easier to manage
-        
+
         """
         tractfile = self.datamanager.get_support_file_location({'type': 'tracts_patches', 'id': self._field})
         self._tract_masks = {}
@@ -172,7 +173,7 @@ class HSCSurvey(Survey):
         for tract in self._tracts.keys():
             mask_path = os.path.join(mask_location, str(tract))
             if not os.path.exists(mask_path):
-                logging.warnning("Unable to find bright star masks for HSC tract {}".format(tract))
+                logging.warning("Unable to find bright star masks for HSC tract {}".format(tract))
             else:
                 paths.update({tract: mask_path})
         try:
@@ -184,7 +185,7 @@ class HSCSurvey(Survey):
             patch_files = [os.path.join(path, file) for file in os.listdir(path) if file.endswith(band + '.reg')]
             f = self._exec.submit(self._read_patch_maskfiles, patch_files, tract)
             starmasks.update({tract: f})
-        
+
         self._starmasks = hsc_mask(starmasks)
 
 
@@ -217,7 +218,7 @@ class HSCSurvey(Survey):
                     elif 'Center' in line:
                         tracts[tract_num]['subregions'][patch_val].update({'center': (float(nums[-2]), float(nums[-1]))})
         return tracts
-    
+
     def _parse_tractdata(self, tractdata, *args, **kwargs):
         output = {}
         try:
@@ -255,7 +256,7 @@ class HSCSurvey(Survey):
         patch = patch.group()
         data = tuple(int(p) for p in patch.split(','))
         if len(data) == 2:
-            return data        
+            return data
 
     @staticmethod
     def _patch_tuple_to_int(patch_tuple):
@@ -279,12 +280,12 @@ class HSCSurvey(Survey):
         polygon = geometry.Polygon(sorted_coords)
         return polygon
 
-    
+
     @staticmethod
     def _parse_field_mask(maskdata):
         pass
 
-    @staticmethod     
+    @staticmethod
     def _read_patch_maskfiles(paths, tract = None):
 
         patchdata = {}
@@ -298,13 +299,13 @@ class HSCSurvey(Survey):
                 print(e)
                 logging.warning("Couldn't find starmask at {}".format(file))
         if tract is not None:
-            print("Finished loading bright star masks for tract {}".format(tract))        
+            print("Finished loading bright star masks for tract {}".format(tract))
         return patchdata
 
-    
+
 
 class hsc_catalog(SkyCatalog2D):
-    
+
     def __init__(self, cat, *args, **kwargs):
         try:
             self._tract_names = cat['tract'].unique()
@@ -338,8 +339,8 @@ class hsc_mask(StarMaskCollection):
 
     def __init__(self, masks):
         super().__init__(masks)
-    
-    
+
+
 
     def mask_catalog(self, catalog, region, patches, *args, **kwargs):
         all_masks = self._get_mask_objects_by_patch(patches, *args, **kwargs)
@@ -375,7 +376,7 @@ class hsc_mask(StarMaskCollection):
 
         return all_masks
 
-    
+
     def mask_external_catalog(self, external_catalog, external_region, internal_region, *args, **kwargs):
         try:
             patches = kwargs['patches']

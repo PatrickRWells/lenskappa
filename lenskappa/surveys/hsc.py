@@ -173,7 +173,7 @@ class HSCSurvey(Survey):
         for tract in self._tracts.keys():
             mask_path = os.path.join(mask_location, str(tract))
             if not os.path.exists(mask_path):
-                logging.warnning("Unable to find bright star masks for HSC tract {}".format(tract))
+                logging.warning("Unable to find bright star masks for HSC tract {}".format(tract))
             else:
                 paths.update({tract: mask_path})
         try:

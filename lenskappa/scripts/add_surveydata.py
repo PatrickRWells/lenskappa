@@ -1,7 +1,7 @@
 import os
 import lenskappa
 from lenskappa.surveys.survey import Survey
-from lenskappa.surveys.datamanger import SurveyDataManager
+from lenskappa.surveys import SurveyDataManager
 import argparse
 import logging
 import toml
@@ -22,5 +22,5 @@ def add_surveydata(args):
     else:
         args[0] = 'add'
         input_args = args
-    
+
     data.parse_cmd_input(input_args)

@@ -1,7 +1,7 @@
 import os
 import lenskappa
 from lenskappa.surveys.survey import Survey
-from lenskappa.surveys import SurveyDataManager
+from lenskappa import SurveyDataManager
 import argparse
 import logging
 import toml

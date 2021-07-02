@@ -65,7 +65,10 @@ class Catalog(metaclass=ABCMeta):
         """
         Allows for masking as with a usual dataframe
         """
-        return self._cat[key]
+        if key in self._parmap.keys():
+            return self._cat[self._parmap[key]]
+        else:
+            return self._cat[key]
 
     def __setitem__(self, key, data):
         """
@@ -87,6 +90,17 @@ class Catalog(metaclass=ABCMeta):
 
     def get_parmap(self):
         return self._parmap
+
+    def get_colname(self, column):
+        if column in self._cat.columns:
+            return column
+        try:
+            return self._parmap[column]
+        except:
+            logging.warning("Unable to find column {}".format(column))
+            raise
+
+
 
     @classmethod
     def read_csv(cls, file, config = None, *args, **kwargs):
@@ -118,6 +132,7 @@ class Catalog(metaclass=ABCMeta):
         Are replaced with the given value.
         """
         df = self._cat.copy()
+        colname = self._get_colname(column)
         df.loc[~mask, column] = value
         return self.from_dataframe(df, parmap=self._parmap)
 

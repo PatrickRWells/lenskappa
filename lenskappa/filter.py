@@ -1,5 +1,6 @@
 from abc import ABCMeta, abstractmethod
 import logging
+from os import makedev
 import numpy as np
 
 
@@ -15,7 +16,7 @@ class Filter:
         self._type = filter_type
     
     @abstractmethod
-    def __call__(self, catalog, parmap, *args, **kwargs):
+    def __call__(self, catalog, *args, **kwargs):
         """
         Filters shoudl implement a __call__ method.
         In order to apply the filter, call
@@ -38,30 +39,9 @@ class ColumnFilter(Filter):
         self._column = column
     
     @abstractmethod
-    def __call__(self, catalog, parmap, *args, **kwargs):
+    def __call__(self, catalog, *args, **kwargs):
         pass
     
-    def _get_column_values(self, catalog, parmap):
-        try:
-            colname = self._check_column_name(catalog, parmap)
-            return catalog[colname]
-        except:
-            raise
-
-        
-    def _check_column_name(self, catalog, parmap):
-        try:
-            col = catalog[self._column]
-            return self._column
-        except:
-            try:
-                colname = parmap[self._column]
-                col = catalog[colname]
-                return colname
-            except:
-                logging.error("Unable to locate column {}".format(self._column))
-                raise
-
 class ColumnLimitFilter(ColumnFilter):
 
     def __init__(self, column, min=None, max=None, *args, **kwargs):
@@ -81,9 +61,9 @@ class ColumnLimitFilter(ColumnFilter):
         self._min = min
         self._max = max
     
-    def __call__(self, catalog, parmap, *args, **kwargs):
+    def __call__(self, catalog, *args, **kwargs):
 
-        column = self._get_column_values(catalog, parmap)
+        column = catalog[self._column]
         filter = np.ones(len(column), dtype=bool)
         if self._min is not None:
             filter = filter & (column > self._min)
@@ -121,10 +101,9 @@ class ColumnLimitFilterWithReplacement(ColumnLimitFilter):
         """
         super().__init__(column, min, max)
     
-    def __call__(self, catalog, parmap):
+    def __call__(self, catalog):
         new_catalog = catalog
-        col = self._get_column_values(new_catalog, parmap)
-        colname = self._check_column_name(new_catalog, parmap)
+        col = catalog[self._column]
 
         if self._min is not None:
             min_filter = (col > self._min)
@@ -138,20 +117,13 @@ class ColumnLimitFilterWithReplacement(ColumnLimitFilter):
 
 
 if __name__ == "__main__":
+    filter = MaxValueFilter("z_gal", 1.523)
     from lenskappa import SkyCatalog2D
-
-    cat = SkyCatalog2D.read_csv("/Users/patrick/Documents/Current/Research/LensEnv/0924/weighting/lens_cat.csv")
-    filter = ColumnLimitFilterWithReplacement('i_cmodel_mag', min=20, max=24)
-    parmap = {}
-
-    new_cat = filter(cat, parmap)
+    parmap = {'z_gal': 'demp_photoz_best'}
+    data = SkyCatalog2D.read_csv("/Users/patrick/Documents/Current/Research/LensEnv/0924/weighting/lens_cat.csv", parmap=parmap)
+    output = filter(data)
     import matplotlib.pyplot as plt
-    plt.hist(cat['i_cmodel_mag'], 50)
+    plt.hist(data['z_gal'])
     plt.show()
-    plt.hist(new_cat['i_cmodel_mag'],50)
+    plt.hist(output['z_gal'])
     plt.show()
-    print(len(cat))
-    print(len(new_cat))
-
-
-

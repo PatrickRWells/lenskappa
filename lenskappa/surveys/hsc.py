@@ -10,7 +10,8 @@ import operator
 import traceback
 import re
 
-from lenskappa.surveys.survey import Survey, SurveyDataManager
+from lenskappa.surveys.survey import Survey
+from lenskappa.surveys.datamanger import SurveyDataManager
 from lenskappa.region import SkyRegion
 from lenskappa.catalog import SkyCatalog2D
 from lenskappa.starmask import StarMaskCollection, RegStarMask

@@ -103,6 +103,7 @@ class Region(metaclass=ABCMeta):
 
 class SkyRegion(Region):
     def __init__(self, center, region, *args, **kwargs):
+        
         bounds = region.bounds
         ras = np.array([bounds[0], bounds[2]])
         decs = np.array([bounds[1], bounds[3]])

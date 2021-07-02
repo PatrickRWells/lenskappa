@@ -1,6 +1,7 @@
 import os
 import lenskappa
-from lenskappa.surveys.survey import Survey, SurveyDataManager
+from lenskappa.surveys.survey import Survey
+from lenskappa.surveys.datamanger import SurveyDataManager
 import argparse
 import logging
 import toml
@@ -23,9 +24,3 @@ def add_surveydata(args):
         input_args = args
     
     data.parse_cmd_input(input_args)
-
-
-
-    #payload = {'data': {argdata.data_type[0]: {'type': argdata.data_type[0], 'path': argdata.path[0]} } }
-    #manager = SurveyDataManager()
-    #manager.add_surveydata(argdata.survey_name[0], payload)

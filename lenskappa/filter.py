@@ -4,7 +4,7 @@ from os import makedev
 import numpy as np
 
 
-class Filter:
+class Filter(metaclass=ABCMeta):
 
     def __init__(self, filter_type=None, *args, **kwargs):
         """
@@ -18,14 +18,14 @@ class Filter:
     @abstractmethod
     def __call__(self, catalog, *args, **kwargs):
         """
-        Filters shoudl implement a __call__ method.
+        Filters should implement a __call__ method.
         In order to apply the filter, call
-            filter(catalog, parmap)
+            filter(catalog)
         Params:
         catalog <catalog.Catalog>: The catalog to be filtered
-        parmap <dict>: The parameter map for the catalog.
-            Filters by default look for standard column names.        
-        
+
+        Returns:
+        filtered_catalog <catalog.Catalog>: The filtered catalog        
         """
         pass
 
@@ -62,7 +62,6 @@ class ColumnLimitFilter(ColumnFilter):
         self._max = max
     
     def __call__(self, catalog, *args, **kwargs):
-
         column = catalog[self._column]
         filter = np.ones(len(column), dtype=bool)
         if self._min is not None:
@@ -79,12 +78,18 @@ class ColumnLimitFilter(ColumnFilter):
 class MaxValueFilter(ColumnLimitFilter):
     
     def __init__(self, column, max, *args, **kwargs):
+        """
+        Convinience class for when only a maximum value is necessary
+        """
 
         super().__init__(column, max = max, *args, **kwargs)
     
 class MinValueFilter(ColumnLimitFilter):
     
     def __init__(self, column, min, *args, **kwargs):
+        """
+        Convinience class for when only a minimum value is necessary
+        """
 
         super().__init__(column, min = min, *args, **kwargs)
 
@@ -114,16 +119,3 @@ class ColumnLimitFilterWithReplacement(ColumnLimitFilter):
             new_catalog = new_catalog.replace_values_by_mask(max_filter, self._column, self._max)
         
         return new_catalog
-
-
-if __name__ == "__main__":
-    filter = MaxValueFilter("z_gal", 1.523)
-    from lenskappa import SkyCatalog2D
-    parmap = {'z_gal': 'demp_photoz_best'}
-    data = SkyCatalog2D.read_csv("/Users/patrick/Documents/Current/Research/LensEnv/0924/weighting/lens_cat.csv", parmap=parmap)
-    output = filter(data)
-    import matplotlib.pyplot as plt
-    plt.hist(data['z_gal'])
-    plt.show()
-    plt.hist(output['z_gal'])
-    plt.show()

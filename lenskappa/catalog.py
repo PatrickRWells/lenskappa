@@ -132,8 +132,8 @@ class Catalog(metaclass=ABCMeta):
         Are replaced with the given value.
         """
         df = self._cat.copy()
-        colname = self._get_colname(column)
-        df.loc[~mask, column] = value
+        colname = self.get_colname(column)
+        df.loc[~mask, colname] = value
         return self.from_dataframe(df, parmap=self._parmap)
 
 
@@ -257,51 +257,6 @@ class Catalog2D(Catalog):
             mask = self._init_subregion[name]
 
         return self.from_dataframe(cat=self._cat[mask], parmap=self._parmap)
-    
-    def add_column_bound(self, column, min = False, max = False):
-        """
-        Remove objects outside of a particular bound, based on value
-        """
-        try:
-            colname = self._parmap[column]
-        except:
-            colname = column
-        try:
-            col = self._cat[colname]
-        except:
-            logging.error("Tried to filter catalog by column {}, but the column doesn't exist")
-
-        if not (min or max) and min !=0 and max !=0:
-            logging.error("You must provide a minimum or maximum to place bounds on the catalog!")
-            return
-        
-        mask = np.array([True]*len(self._cat))
-        if min or min == 0:
-            mask = mask & (col >= min)
-        if max or max == 0:
-            mask = mask & (col <= max)
-        
-        self._cat.drop(self._cat[~mask].index, inplace=True)
-
-
-
-
-    def filter_by_columns(self, conditions, *args, **kwargs):
-        """
-        Filters the catalog by certain columns.
-        Shold be key-value pairs, where the key is the column
-        And the value is a list of acceptable values
-        """
-        final_mask = np.array([False]*len(self))
-        for data in conditions:
-            sub_mask = np.array([True]*len(self))
-            for column, keys in data.items():
-                sub_mask = sub_mask & self._cat[column].isin(keys)
-
-            final_mask = final_mask | sub_mask
-        
-        return self.apply_boolean_mask(final_mask)
-
 
     @require_points
     def filter_by_subregions(self, subregions, *args, **kwargs):
@@ -386,7 +341,12 @@ class SkyCatalog2D(Catalog2D):
             self._skypoints = SkyCoord(self._cat[self._parmap['x']], self._cat[self._parmap['y']], unit="deg")
             return self._skypoints
 
-    
+    def get_distances(self, center: SkyCoord, unit=u.arcsec, *args, **kwargs):
+        coords = self.get_coords()
+        distances = center.separation(coords).to(unit)
+        self._cat['distance'] = distances
+
+
     def add_subregion(self, name, region, *args, **kwargs):
         """
         Shapely does not represent circular regions exactly, so this method
@@ -455,3 +415,19 @@ class SkyCatalog2D(Catalog2D):
             return item
         else:
             return super().get_objects_in_region(region)
+
+    def filter_by_columns(self, conditions, *args, **kwargs):
+        """
+        Filters the catalog by certain columns.
+        Shold be key-value pairs, where the key is the column
+        And the value is a list of acceptable values
+        """
+        final_mask = np.array([False]*len(self))
+        for data in conditions:
+            sub_mask = np.array([True]*len(self))
+            for column, keys in data.items():
+                sub_mask = sub_mask & self._cat[column].isin(keys)
+
+            final_mask = final_mask | sub_mask
+        
+        return self.apply_boolean_mask(final_mask)

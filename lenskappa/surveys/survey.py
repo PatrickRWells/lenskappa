@@ -65,6 +65,16 @@ class Survey(metaclass=ABCMeta):
         else:
             self._region = region
 
+    def handle_catalog_filter(self, filter_fn, *args, **kwargs):
+        """
+        Passes filters through to the catalog
+        
+        Parameters:
+        filter_fn: Fn that will apply the filter(s)
+        """
+
+        self._catalog = filter_fn(self._catalog, *args, **kwargs)
+
 
     @abstractmethod
     def setup(self, *args, **kwargs):
@@ -89,7 +99,7 @@ class Survey(metaclass=ABCMeta):
         """
     
     @abstractmethod
-    def get_objects(self, internal_region, mask = True, *args, **kwargs):
+    def get_objects(self, internal_region, mask = True, get_dist = True, *args, **kwargs):
         """
         Get objects within in a particular region of the survey.
         Either with or without masking objects near brigh stars.
@@ -97,16 +107,10 @@ class Survey(metaclass=ABCMeta):
         Parameters:
             internal_region <region.SkyRegion> Region inside the survey area to get objects for
             mask: <bool> Whether or not to mask out objects based on the bright star masks
+            get_dist: <bool> Whether or not to add the distance from the center of the region into the catalog
         
         """
         pass
-
-    def add_column_bound(self, *args, **kwargs):
-        """
-        I'd eventually like to add a more elegant way to deal with these kinds of things
-        """
-        self._catalog.add_column_bound(*args, **kwargs)
-
 
     def check_frame(self, region, catalog, *args, **kwargs):
         """
@@ -122,5 +126,5 @@ class Survey(metaclass=ABCMeta):
 
         points = catalog.get_points()
         mask = np.array([self._region.contains(point) for point in points])
-        newcat = catalog.apply_catalog_mask(mask)
+        newcat = catalog.apply_boolean_mask(mask)
         return newcat    

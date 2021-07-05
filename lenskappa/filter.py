@@ -11,7 +11,7 @@ class Filter(metaclass=ABCMeta):
         Filters are used to modify the contents of a catalog.
         An example usage would be to remove objects beyond a certain redshift
         Or remove objects during weighting that fall too far from the center
-        of the file.
+        of the region.
         """
         self._type = filter_type
     
@@ -46,7 +46,7 @@ class ColumnLimitFilter(ColumnFilter):
 
     def __init__(self, column, min=None, max=None, *args, **kwargs):
         """
-        Place a limit on the value of a column.
+        Place a limit on the value of a column numerical column
         Rows where the given column is outside the limit will be removed
 
         Params:
@@ -54,6 +54,7 @@ class ColumnLimitFilter(ColumnFilter):
             min: the minimum allowed value
             max: the maximum allowed value
         """
+
         if min is None and max is None:
             logging.error("A column limit filter must have either a minimum or maximum value!")
             return
@@ -101,7 +102,7 @@ class ColumnLimitFilterWithReplacement(ColumnLimitFilter):
         Except that instead of removing objects that fall
         outside the bounds, it replaces their value with the
         value of the bound.
-        Everything larger than min will be replaced with max
+        Everything larger than max will be replaced with max
         And everything smaller than min will be replaced with min 
         """
         super().__init__(column, min, max)

@@ -67,7 +67,7 @@ class Survey(metaclass=ABCMeta):
 
     def handle_catalog_filter(self, filter_fn, *args, **kwargs):
         """
-        Passes filters through to the catalog
+        Passes filters through to a catalog
         
         Parameters:
         filter_fn: Fn that will apply the filter(s)

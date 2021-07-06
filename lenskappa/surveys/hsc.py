@@ -75,12 +75,10 @@ class HSCSurvey(Survey):
 
         return patches
 
-    def wait_for_setup(self):
-        while not self._region.is_ready:
-            print("waiting for region")
+    def wait_for_setup(self, *args, **kwargs):
+        while not self._region.is_ready(*args, **kwargs):
             time.sleep(1)
-        while not self._starmasks.is_ready:
-            print("waiting for starmasks")
+        while not self._starmasks.is_ready(*args, **kwargs):
             time.sleep(1)
         
 
@@ -370,8 +368,7 @@ class hsc_mask(StarMaskCollection):
         self._is_loaded[id] = True
         self._masks[id] = result
 
-    @property
-    def is_ready(self):
+    def is_ready(self, *args, **kwargs):
         return np.all(list(self._is_loaded.values()))
 
     def mask_catalog(self, catalog, region, patches, *args, **kwargs):

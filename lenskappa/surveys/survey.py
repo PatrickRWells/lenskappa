@@ -80,12 +80,12 @@ class Survey(metaclass=ABCMeta):
     def setup(self, *args, **kwargs):
         pass
 
-    def generate_circular_tile(self, radius):
+    def generate_circular_tile(self, radius, *args, **kwargs):
         """
         This should probably be overridden for some kinds of 
         """
 
-        return self._region.generate_circular_tile(radius)
+        return self._region.generate_circular_tile(radius, *args, **kwargs)
 
     @abstractmethod
     def mask_external_catalog(self, external_catalog, external_catalog_region, internal_region, *args, **kwargs):
@@ -113,7 +113,7 @@ class Survey(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def wait_for_setup(self):
+    def wait_for_setup(self, *args, **kwargs):
         """
         At present, surveys are only used to retrieve values during weighting.
         As such, there is no need for state to be shared be subprocesses when 

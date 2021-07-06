@@ -8,6 +8,8 @@ import math
 import logging
 import astropy.units as u
 import atexit
+import time
+
 
 from lenskappa.catalog import Catalog, SkyCatalog2D
 from lenskappa.region import CircularSkyRegion, Region, SkyRegion
@@ -197,7 +199,7 @@ class Counter:
 
         for _ in range(num_samples):
 
-            tile = self._reference_survey.generate_circular_tile(self._radius)
+            tile = self._reference_survey.generate_circular_tile(self._radius, *args, **kwargs)
             control_catalog = self._reference_survey.get_objects(tile, masked=self._mask, get_distance=True, dist_units = u.arcsec)
             if self._mask:
 
@@ -215,9 +217,9 @@ class Counter:
             row = self._parse_weight_values(field_weights, control_weights)
             yield row
 
-    def _weight_worker(self, num_samples, queue, *args, **kwargs):
+    def _weight_worker(self, num_samples, queue, thread_num, globals, *args, **kwargs):
         weight_data = pd.DataFrame(columns=list(self._weightfns.keys()))
-        for index, row in enumerate(self._get_weight_values(num_samples, *args, **kwargs)):
+        for index, row in enumerate(self._get_weight_values(num_samples, thread_num = thread_num, globals=globals, *args, **kwargs)):
             weight_data = weight_data.append(row, ignore_index=True)
             if index and index % ( int(num_samples/10)) == 0:
                 weight_data = pd.DataFrame(columns=list(self._weightfns.keys()))
@@ -246,16 +248,18 @@ class Counter:
                 num_threads = num_cores
             else:
                 num_threads = threads
-            
+            lock = mp.Lock()
+            rng =  [np.random.default_rng() for _ in range(num_threads - 1)]
+            globals = {'lock': lock, 'rng': rng}
             numperthread = math.ceil(num_samples/(num_threads-1))
             self._queues = [mp.Queue() for _ in range(num_threads -1)]
-            self._processes = [mp.Process(target=self._weight_worker, args=(numperthread, self._queues[i]) ) for i in range(num_threads -1) ]
+            self._processes = [mp.Process(target=self._weight_worker, args=(numperthread, self._queues[i], i, globals) ) for i in range(num_threads -1) ]
             
             for process in self._processes:
                 atexit.register(process.terminate)
 
             self._running = [True]*(num_threads - 1)
-            self._reference_survey.wait_for_setup()
+            self._reference_survey.wait_for_setup(globals=globals)
             for process in self._processes:
                 process.start()
             print("Starting weighting...")
@@ -319,17 +323,3 @@ class Counter:
                 return_weights.update({weight_name: ratio})
             
         return pd.Series(return_weights)
-
-if __name__ == "__main__":
-    from lenskappa.surveys import hsc
-    import shapely.geometry
-    from astropy.coordinates import SkyCoord
-    box = geometry.box(34, -4, 36, -3)
-    frame = SkyRegion(box.centroid, box) 
-    parmap = {'z_gal': 'demp_photoz_best', 'm_gal': 'demp_sm', 'z_s': 1.523}
-    center = SkyCoord(141.23246, 2.32358, unit="deg")
-    lens_region = CircularSkyRegion(center, 120*u.arcsec)
-    field_catalog = SkyCatalog2D.read_csv("/Users/patrick/Documents/Current/Research/LensEnv/0924/weighting/lens_cat.csv", parmap=parmap)
-    control = hsc("W02_test", frame=frame, tracts=[8765, 8766], parmap=parmap)
-    counter = Counter(field_catalog,control, lens_region)
-    counter.get_weight_ratios("all", 500, output_file="output.csv", threads = 4, overwrite=True)

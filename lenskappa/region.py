@@ -165,7 +165,7 @@ class SkyRegion(Region):
         point = geometry.Point(point_coords)
         if not self._polygon.contains(point):
             #If the center of the tile falls outside the region, try again
-            return self.generate_circular_tile(aperture=aperture)
+            return self.generate_circular_tile(aperture=aperture, *args, **kwargs)
         
         return CircularSkyRegion(coord, aperture)
         

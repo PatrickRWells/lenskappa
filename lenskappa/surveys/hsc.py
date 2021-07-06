@@ -77,9 +77,9 @@ class HSCSurvey(Survey):
 
     def wait_for_setup(self, *args, **kwargs):
         while not self._region.is_ready(*args, **kwargs):
-            time.sleep(1)
+	    time.sleep(1)
         while not self._starmasks.is_ready(*args, **kwargs):
-            time.sleep(1)
+	    time.sleep(1)
         
 
     def get_objects(self, region, masked=True, get_dist = True, *args, **kwargs):

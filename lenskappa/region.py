@@ -124,6 +124,14 @@ class SkyRegion(Region):
     def skycoord(self):
         pass
 
+    @property
+    def is_ready(self):
+        try:
+            sampler = self._sampler
+        except:
+            self._init_sampler()
+        return True
+
     def build_region(self, center, input_region, *args, **kwargs):
         return SkyRegion(center, input_region)
 

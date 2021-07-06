@@ -9,6 +9,7 @@ import logging
 import operator
 import traceback
 import re
+import time
 
 from lenskappa.surveys.survey import Survey
 from lenskappa import SurveyDataManager
@@ -74,9 +75,14 @@ class HSCSurvey(Survey):
 
         return patches
 
-    def generate_cirular_tile(self, radius, *args, **kwargs):
-        pass
-
+    def wait_for_setup(self):
+        while not self._region.is_ready:
+            print("waiting for region")
+            time.sleep(1)
+        while not self._starmasks.is_ready:
+            print("waiting for starmasks")
+            time.sleep(1)
+        
 
     def get_objects(self, region, masked=True, get_dist = True, *args, **kwargs):
         """
@@ -89,6 +95,7 @@ class HSCSurvey(Survey):
         patches = self._get_patch_overlaps(region)
         catalog = self._catalog.filter_by_subregions(patches)
         unmasked_catalog = catalog.get_objects_in_region(region, *args, **kwargs)
+
         if len(unmasked_catalog) == 0:
             logging.error("Returned an empty dataframe")
             return unmasked_catalog
@@ -99,7 +106,7 @@ class HSCSurvey(Survey):
                 unmasked_catalog.get_distances(region.skycoord[0], unit)
             except:
                 unmasked_catalog.get_distances(region.skycoord[0])
-            
+        
         if masked:
             return self._starmasks.mask_catalog(unmasked_catalog, region, patches)
         else:
@@ -193,7 +200,7 @@ class HSCSurvey(Survey):
             f = self._exec.submit(self._read_patch_maskfiles, patch_files, tract)
             starmasks.update({tract: f})
 
-        self._starmasks = hsc_mask(starmasks)
+        self._starmasks = hsc_mask(starmasks, futures=True)
 
 
     @staticmethod
@@ -318,7 +325,7 @@ class hsc_catalog(SkyCatalog2D):
             self._tract_names = cat['tract'].unique()
         except:
             logging.warning("Unable to initialize catalog tracts")
-        super().__init__(cat, *args, **kwargs)
+        super().__init__(cat, *args, **kwargs)        
 
     def _init_subregion(self, name, *args, **kwargs):
         if name in self._cat['tract'].unique():
@@ -344,14 +351,31 @@ class hsc_catalog(SkyCatalog2D):
 class hsc_mask(StarMaskCollection):
 
 
-    def __init__(self, masks):
+    def __init__(self, masks, futures=True):
         super().__init__(masks)
+        if futures:
+            self._setup_with_futures()
+        else:
+            self._is_loaded = {key: True for key in self._masks.keys()}
 
 
+    def _setup_with_futures(self):
+        self._is_loaded = {name: False for name in self._masks.keys()}
+        for id, future in self._masks.items():
+            callback = lambda x, y=id: self._handle_future(x, y)
+            future.add_done_callback(callback)
+    
+    def _handle_future(self, future, id):
+        result = future.result()
+        self._is_loaded[id] = True
+        self._masks[id] = result
+
+    @property
+    def is_ready(self):
+        return np.all(list(self._is_loaded.values()))
 
     def mask_catalog(self, catalog, region, patches, *args, **kwargs):
         all_masks = self._get_mask_objects_by_patch(patches, *args, **kwargs)
-
         final_mask = np.array([True]*len(catalog))
 
         for mask in all_masks:
@@ -364,16 +388,12 @@ class hsc_mask(StarMaskCollection):
     def _get_mask_objects_by_patch(self, patches, *args, **kwargs):
         all_masks = []
         for tract_id, patches in patches.items():
-            try:
-                tract_mask = self._masks[tract_id]
-            except Exception as e:
+            if tract_id not in self._is_loaded.keys():
                 logging.warning("No masks found for tract {}".format(tract_id))
                 return
-            try:
-                mask = tract_mask.result()
-                self._masks[tract_id] = mask
-            except:
-                mask = tract_mask
+                
+            mask = self._masks[tract_id]    
+
             for patch_id in patches:
                 try:
                     all_masks.append(mask[patch_id])

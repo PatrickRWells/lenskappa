@@ -112,6 +112,17 @@ class Survey(metaclass=ABCMeta):
         """
         pass
 
+    @abstractmethod
+    def wait_for_setup(self):
+        """
+        At present, surveys are only used to retrieve values during weighting.
+        As such, there is no need for state to be shared be subprocesses when 
+        multiprocessing is added. This method will be called when running weighting in 
+        parallel, and should block execution until the survey object is ready to recieve
+        requests.
+        """
+        pass
+
     def check_frame(self, region, catalog, *args, **kwargs):
         """
         Checks to see if any objects fall outside the defined survey region

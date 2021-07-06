@@ -78,7 +78,7 @@ class HSCSurvey(Survey):
         pass
 
 
-    def get_objects(self, region, masked=True, *args, **kwargs):
+    def get_objects(self, region, masked=True, get_dist = True, *args, **kwargs):
         """
         Get objects in a particular region.
         Parameters:
@@ -93,6 +93,13 @@ class HSCSurvey(Survey):
             logging.error("Returned an empty dataframe")
             return unmasked_catalog
         unmasked_catalog = self.check_frame(region, unmasked_catalog)
+        if get_dist:
+            try:
+                unit = kwargs['dist_unit']
+                unmasked_catalog.get_distances(region.skycoord[0], unit)
+            except:
+                unmasked_catalog.get_distances(region.skycoord[0])
+            
         if masked:
             return self._starmasks.mask_catalog(unmasked_catalog, region, patches)
         else:
@@ -352,7 +359,7 @@ class hsc_mask(StarMaskCollection):
             is_masked = mask.get_bool_region_mask(catalog, region)
             final_mask = final_mask & is_masked
 
-        return catalog.apply_catalog_mask(~final_mask)
+        return catalog.apply_boolean_mask(~final_mask)
 
     def _get_mask_objects_by_patch(self, patches, *args, **kwargs):
         all_masks = []

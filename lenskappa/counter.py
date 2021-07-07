@@ -221,9 +221,11 @@ class Counter:
         weight_data = pd.DataFrame(columns=list(self._weightfns.keys()))
         for index, row in enumerate(self._get_weight_values(num_samples, thread_num = thread_num, globals=globals, *args, **kwargs)):
             weight_data = weight_data.append(row, ignore_index=True)
-            if index and index % ( int(num_samples/10)) == 0:
-                weight_data = pd.DataFrame(columns=list(self._weightfns.keys()))
+            if index and (index % ( int(num_samples/10)) == 0):
+                logging.log("Thread {} completed {} samples".format(thread_num, index))
+                logging.log("Sending to supervisor...")
                 queue.put(weight_data)
+                weight_data = pd.DataFrame(columns=list(self._weightfns.keys()))
 
         
         queue.put(weight_data)

@@ -94,17 +94,18 @@ class HSCSurvey(Survey):
         catalog = self._catalog.filter_by_subregions(patches)
         unmasked_catalog = catalog.get_objects_in_region(region, *args, **kwargs)
 
+        unmasked_catalog = self.check_frame(region, unmasked_catalog)
         if len(unmasked_catalog) == 0:
             logging.error("Returned an empty dataframe")
             return unmasked_catalog
-        unmasked_catalog = self.check_frame(region, unmasked_catalog)
+
         if get_dist:
             try:
                 unit = kwargs['dist_unit']
                 unmasked_catalog.get_distances(region.skycoord[0], unit)
             except:
                 unmasked_catalog.get_distances(region.skycoord[0])
-        
+
         if masked:
             return self._starmasks.mask_catalog(unmasked_catalog, region, patches)
         else:

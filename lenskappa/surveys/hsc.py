@@ -378,7 +378,15 @@ class hsc_mask(StarMaskCollection):
         for mask in all_masks:
 
             is_masked = mask.get_bool_region_mask(catalog, region)
-            final_mask = final_mask & is_masked
+            
+            try:
+                final_mask = final_mask & is_masked
+            except:
+                logging.error("Couldn't combine boolean masks")
+                print(final_mask)
+                print(is_masked)
+                print(catalog)
+                return pd.DataFrame(columns=catalog.columns)
 
         return catalog.apply_boolean_mask(~final_mask)
 

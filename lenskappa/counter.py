@@ -196,11 +196,21 @@ class Counter:
             self._write_output(weight_data)
         
     def _get_weight_values(self, num_samples, *args, **kwargs):
-
-        for _ in range(num_samples):
+        
+        running_num = num_samples
+        loop_i = 0
+        skipped = 0
+        while loop_i < running_num:
 
             tile = self._reference_survey.generate_circular_tile(self._radius, *args, **kwargs)
             control_catalog = self._reference_survey.get_objects(tile, masked=self._mask, get_distance=True, dist_units = u.arcsec)
+
+            if len(control_catalog) == 0:
+                skipped += 1
+                logging.warning("Found no objets for tile centered at {}".format(tile.skycoord[0]))
+                logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped, loop_i+1))
+                continue
+
             if self._mask:
 
                 field_catalog = self._reference_survey.mask_external_catalog(self._field_catalog, self._field_region, tile)

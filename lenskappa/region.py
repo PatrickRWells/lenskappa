@@ -124,6 +124,13 @@ class SkyRegion(Region):
     def skycoord(self):
         pass
 
+    def is_ready(self, *args, **kwargs):
+        try:
+            sampler = self._sampler
+        except:
+            self._init_sampler(*args, **kwargs)
+        return True
+
     def build_region(self, center, input_region, *args, **kwargs):
         return SkyRegion(center, input_region)
 
@@ -147,30 +154,34 @@ class SkyRegion(Region):
         except:
             logging.error("Attempted to draw a tile in the region, but the aperture does not have units")
             return False
-                
-        point_coords = self._draw_sample()
+        
+        try:
+            thread_num = kwargs['thread_num']
+        except:
+            thread_num = - 1
+
+        point_coords = self._draw_sample(thread_num)
         coord = SkyCoord(point_coords[0], point_coords[1], unit="deg")
         point = geometry.Point(point_coords)
         if not self._polygon.contains(point):
             #If the center of the tile falls outside the region, try again
-            return self.generate_circular_tile(aperture=aperture)
+            return self.generate_circular_tile(aperture=aperture, *args, **kwargs)
         
         return CircularSkyRegion(coord, aperture)
         
         
-    def _init_sampler(self):
+    def _init_sampler(self, *args, **kwargs):
         """
         Initialize the sampler for drawing regions.
         Currently, draws randomly off the surface of a sphere
         TODO: Test with iregularly-shaped region
         """
-
         if self._sample_type == 'spherical':
-            self._init_spherical_sampler()
+            self._init_spherical_sampler(*args, **kwargs)
         else:
             logging.error("Currently, only spherical sampling is implemented")
     
-    def _init_spherical_sampler(self):
+    def _init_spherical_sampler(self, *args, **kwargs):
         bounds = self._polygon.bounds
         ra1,ra2 = bounds[0], bounds[2]
         dec1, dec2 = bounds[1], bounds[3]
@@ -187,16 +198,23 @@ class SkyRegion(Region):
 
         self._low_sampler_range = [phi_range[0], costheta_range[0]]
         self._high_sampler_range = [phi_range[1], costheta_range[1]]
-        self._sampler = np.random.default_rng(int(time.time()))
+        try:
+            logging.info("Default sampler was overridden to keep sample thread-safe.")
+            self._sampler = kwargs['globals']['rng']
+        except:
+            self._sampler = np.random.default_rng(int(time.time()))
 
-    def _draw_sample(self):
+    def _draw_sample(self, thread_num = -1):
         try:
             sampler = self._sampler
         except:
             self._init_sampler()
 
         if self._sample_type == "spherical":
-            vals = self._sampler.uniform(self._low_sampler_range, self._high_sampler_range)
+            if thread_num != -1:
+                vals = self._sampler[thread_num].uniform(self._low_sampler_range, self._high_sampler_range)
+            else:    
+                vals = self._sampler.uniform(self._low_sampler_range, self._high_sampler_range)
             ra = np.degrees(vals[0])
             theta = np.degrees(np.arccos(vals[1]))
             dec = 90 - theta

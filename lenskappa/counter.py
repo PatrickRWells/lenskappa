@@ -1,5 +1,4 @@
 from re import M
-import traceback
 import numpy as np
 from shapely import geometry
 import multiprocessing as mp
@@ -8,9 +7,12 @@ import pandas as pd
 import math
 import logging
 import astropy.units as u
+import atexit
+import time
 
-from lenskappa.catalog import Catalog
-from lenskappa.region import Region, SkyRegion
+
+from lenskappa.catalog import Catalog, SkyCatalog2D
+from lenskappa.region import CircularSkyRegion, Region, SkyRegion
 from lenskappa.weighting import weighting
 from lenskappa.surveys.survey import Survey
 
@@ -181,23 +183,33 @@ class Counter:
 
 
         if threads > 1:
-            logging.warning("Multithreading has not been fully implemented. Falling back to a single thread")
-            
-        for index, row in enumerate(self._get_weight_values(num_samples)):
-            weight_data = weight_data.append(row, ignore_index=True)
-            if index % (num_samples/10) == 0:
-                print("Completed {} out of {} samples".format(index, num_samples))
-                self._write_output(weight_data)
+            self._delegate_weight_values(num_samples, threads)
 
-        self._write_output(weight_data)
-        
-    def _get_weight_values(self, num_samples, mutex = None, *args, **kwargs):
-        
-        for _ in range(num_samples):
+        else: 
+            print("Starting weighting...")
+            for index, row in enumerate(self._get_weight_values(num_samples)):
+                weight_data = weight_data.append(row, ignore_index=True)
+                if index and index % (num_samples/10) == 0:
+                    print("Completed {} out of {} samples".format(index, num_samples))
+                    self._write_output(weight_data)
 
-            tile = self._reference_survey.generate_circular_tile(self._radius)
+            self._write_output(weight_data)
+        
+    def _get_weight_values(self, num_samples, *args, **kwargs):
+
+        loop_i = 0
+        skipped = 0
+        while loop_i < num_samples:
+
+            tile = self._reference_survey.generate_circular_tile(self._radius, *args, **kwargs)
             control_catalog = self._reference_survey.get_objects(tile, masked=self._mask, get_distance=True, dist_units = u.arcsec)
-        
+
+            if len(control_catalog) == 0:
+                skipped += 1
+                logging.warning("Found no objets for tile centered at {}".format(tile.skycoord[0]))
+                logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped, loop_i+skipped+1))
+                continue
+
             if self._mask:
 
                 field_catalog = self._reference_survey.mask_external_catalog(self._field_catalog, self._field_region, tile)
@@ -212,22 +224,23 @@ class Counter:
             control_weights = {key: weight.compute_weight(control_catalog) for key, weight in self._weightfns.items()}
 
             row = self._parse_weight_values(field_weights, control_weights)
+            loop_i += 1
             yield row
 
-    def _weight_worker(self, num_samples, queue, index, *args, **kwargs):
-
+    def _weight_worker(self, num_samples, queue, thread_num, globals, *args, **kwargs):
         weight_data = pd.DataFrame(columns=list(self._weightfns.keys()))
-        for index, row in self._get_weight_values(num_samples, *args, **kwargs):
+        for index, row in enumerate(self._get_weight_values(num_samples, thread_num = thread_num, globals=globals, *args, **kwargs)):
             weight_data = weight_data.append(row, ignore_index=True)
-            if index % (num_samples/10) == 0:
-                logging.info("Completed {} out of {} samples".format(index, num_samples))
-                logging.info("Writing output for first {} samples".format(index))
+            if index and (index % (int(num_samples/10)) == 0):
+                
+                logging.info("Thread {} completed {} samples".format(thread_num, index))
+                logging.info("Sending to supervisor...")
                 queue.put(weight_data)
                 weight_data = pd.DataFrame(columns=list(self._weightfns.keys()))
 
-        self._running[index] = False
-        if len(weight_data != 0):
-            queue.put(weight_data)
+        
+        queue.put(weight_data)
+        queue.put("done")
 
 
 
@@ -235,6 +248,7 @@ class Counter:
         weights.to_csv(self._output_fname)
 
     def _delegate_weight_values(self, num_samples, threads):
+
         if threads <= 2:
             logging.warning("Minimum number of threads for a multithreaded run is 3"\
                             " (one supervisor thread, two worker threads.")
@@ -243,38 +257,51 @@ class Counter:
             num_cores = mp.cpu_count()
             if num_cores < threads:
                 logging.warning("You requested more cores than this machine has available. "\
-                                "I will reduce the number of threads")
+                                "I will reduce the number of threads to {} (down from {})".format(num_cores, threads))
                 num_threads = num_cores
             else:
                 num_threads = threads
-            
-            numperthread = math.ceil(num_samples/num_threads)
+            lock = mp.Lock()
+            rng =  [np.random.default_rng() for _ in range(num_threads - 1)]
+            globals = {'lock': lock, 'rng': rng}
+            numperthread = math.ceil(num_samples/(num_threads-1))
             self._queues = [mp.Queue() for _ in range(num_threads -1)]
-            self._processes = [mp.Process(target=self._weight_worker, args=(numperthread,self._queues[i], i) ) for i in range(num_threads -1) ]
+            self._processes = [mp.Process(target=self._weight_worker, args=(numperthread, self._queues[i], i, globals) ) for i in range(num_threads -1) ]
+            
+            for process in self._processes:
+                atexit.register(process.terminate)
+
             self._running = [True]*(num_threads - 1)
+            self._reference_survey.wait_for_setup(globals=globals)
             for process in self._processes:
                 process.start()
-            self._listen()
+            print("Starting weighting...")
+
+            self._listen(num_samples)
         
-    def _listen(self):
+    def _listen(self, num_samples):
         """
         Collects results from worker threads and periodically writes them to output
         """
         output_frame = pd.DataFrame(columns=list(self._weightfns.keys()))
-        while any(self._running):
-            dataframes = [q.get(block=True) for q in self._queues]
-            subframe = pd.concat(dataframes)
-            output_frame = output_frame.append(subframe, ignore_index=True)
-            self._write_output(output_frame)
-        final = []
-        for queue in self._queues:
-            try:
-                df = queue.get(block=False)
-                final.append(df)
-            except:
-                pass
-        final_frame = output_frame.append(pd.concat(final), ignore_index=True)
-        self._write_output(final_frame)
+        while np.any(self._running):
+            frames = []
+            for index, q in enumerate(self._queues):
+                if not self._running[index]:
+                    continue
+
+                val = q.get()
+                if type(val) == pd.DataFrame:
+                    frames.append(val)
+                elif val == "done":
+                    self._running[index] = False
+            if frames:
+                output_frame = output_frame.append(pd.concat(frames), ignore_index=True)
+                logging.info("Completed {} out of {} samples".format(len(output_frame), num_samples))
+                logging.info("Writing output for first {} samples".format(index))
+
+                self._write_output(output_frame)
+
         for process in self._processes:
             process.join()
 
@@ -309,4 +336,3 @@ class Counter:
                 return_weights.update({weight_name: ratio})
             
         return pd.Series(return_weights)
-            

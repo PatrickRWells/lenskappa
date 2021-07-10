@@ -286,7 +286,6 @@ class Catalog2D(Catalog):
         TODO: Stress-test with millions of points
         """
 
-        logging.info("Initializing catalog points")
         x = self._cat[self._parmap['x']]
         y = self._cat[self._parmap['y']]
         #This line takes quite a while for large catalogs

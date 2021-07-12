@@ -1,4 +1,4 @@
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 from copy import copy
 
 
@@ -14,7 +14,7 @@ import lenskappa
 from lenskappa.region import SkyRegion
 
 
-class Survey(metaclass=ABCMeta):
+class Survey(ABC):
     """
     Individual surveys are essentially plugins. They must have
     certain attributes and methods, to ensure they behave correctly

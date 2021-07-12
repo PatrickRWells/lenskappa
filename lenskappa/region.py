@@ -1,4 +1,4 @@
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 from astropy.coordinates.sky_coordinate import SkyCoord
 from shapely import geometry
 
@@ -7,7 +7,7 @@ import astropy.units as u
 import numpy as np
 import time
 
-class Region(metaclass=ABCMeta):
+class Region(ABC):
     def __init__(self, center, polygon, *args, **kwargs):
         self._center = center
         self._polygon = polygon

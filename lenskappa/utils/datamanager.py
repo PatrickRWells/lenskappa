@@ -5,7 +5,7 @@ import argparse
 from copy import copy
 import hashlib
 import appdirs
-
+from sys import exit
 import lenskappa
 
 class SurveyDataManager:
@@ -38,7 +38,7 @@ class SurveyDataManager:
         self._survey = survey
         base = os.path.dirname(lenskappa.__file__)
         self._basepath = os.path.join(base, 'surveys')
-        base_configpath = os.path.join(base, 'surveys', 'config')
+        base_configpath = os.path.join(self._basepath, survey)
         fname = '.'.join([survey, 'toml'])
         self._survey_config_location = os.path.join(base_configpath, fname)
         try:

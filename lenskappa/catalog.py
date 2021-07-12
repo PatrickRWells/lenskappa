@@ -6,7 +6,7 @@ import logging
 from astropy.coordinates.sky_coordinate import SkyCoord
 from shapely import geometry
 from copy import deepcopy
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 from lenskappa.region import CircularSkyRegion, SkyRegion
 
 def require_points(fn):
@@ -49,7 +49,7 @@ def require_validation(params, *args, **kwargs):
         return wrapper
     return outer
 
-class Catalog(metaclass=ABCMeta):
+class Catalog(ABC):
 
     def __init__(self, cat, base_parmap = {}, partypes = {}, *args, **kwargs):
         self._cat = cat
@@ -118,6 +118,7 @@ class Catalog(metaclass=ABCMeta):
         except:
             logging.error("Pandas could not read file {}".format(file))
             return None
+
     @classmethod
     def from_dataframe(cls, cat, *args, **kwargs):
         return cls(cat, *args, **kwargs)

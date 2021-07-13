@@ -8,13 +8,13 @@ import math
 import logging
 import astropy.units as u
 import atexit
-import time
 
 
-from lenskappa.catalog import Catalog, SkyCatalog2D
-from lenskappa.region import CircularSkyRegion, Region, SkyRegion
+from lenskappa.catalog import Catalog
+from lenskappa.region import Region
 from lenskappa.weighting import weighting
 from lenskappa.surveys.survey import Survey
+from lenskappa.utils.threading import MultiThreadObject
 
 
 class Counter:
@@ -182,7 +182,8 @@ class Counter:
             num_samples: Number of control apertures to generate
             threads: Number of threads to run
         """
-
+        if threads > 1:
+            MultiThreadObject.set_num_threads(threads)
         self._output_fname = output_file
         self._validate_all(*args, **kwargs)
         if not self._valid:
@@ -269,31 +270,24 @@ class Counter:
                             " (one supervisor thread, two worker threads.")
             return self._get_weight_values(num_samples)
 
-        num_cores = mp.cpu_count()
-        if num_cores < threads:
-            logging.warning("You requested more cores than this machine has available. "\
-                            "I will reduce the number of threads to {} (down from {})".format(num_cores, threads))
-            num_threads = num_cores
-        else:
-            num_threads = threads
+        MultiThreadObject.set_num_threads(threads)
+        num_threads = MultiThreadObject.get_num_threads()
+        num_workers = num_threads - 1
+        self._reference_survey.wait_for_setup()
+        #MultiThreadObject runs a check to make sure the number of threads is valid
+        #So get the actual number from it after setting just to be safe. 
 
-        lock = mp.Lock()
         #The default numpy RNG is not thread safe, so we have to create several
         #This needs a more elegant solution
-        rng =  [np.random.default_rng() for _ in range(num_threads - 1)]
-        globals = {'lock': lock, 'rng': rng}
 
-
-        numperthread = math.ceil(num_samples/(num_threads-1))
-        self._queues = [mp.Queue() for _ in range(num_threads -1)]
-        self._processes = [mp.Process(target=self._weight_worker, args=(numperthread, self._queues[i], i, globals) ) for i in range(num_threads -1) ]
+        numperthread = math.ceil(num_samples/(num_workers))
+        self._queues = [mp.Queue() for _ in range(num_workers)]
+        self._processes = [mp.Process(target=self._weight_worker, args=(numperthread, self._queues[i], i) ) for i in range(num_workers) ]
 
         for process in self._processes:
             atexit.register(process.terminate)
 
-        self._running = [True]*(num_threads - 1)
-        #This handles passing the RNGs to the survey
-        self._reference_survey.wait_for_setup(globals=globals)
+        self._running = [True]*(num_workers)
         for process in self._processes:
             process.start()
         print("Starting weighting...")
@@ -327,7 +321,7 @@ class Counter:
             process.join()
 
 
-    def _weight_worker(self, num_samples, queue, thread_num, globals, *args, **kwargs):
+    def _weight_worker(self, num_samples, queue, thread_num, *args, **kwargs):
         """
         Worker function suitable for use in multithreaded runs.
         Expects a queue to communicate with the supervisor thread.

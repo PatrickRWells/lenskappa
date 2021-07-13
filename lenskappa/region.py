@@ -1,11 +1,12 @@
 from abc import ABC, abstractmethod
 from astropy.coordinates.sky_coordinate import SkyCoord
 from shapely import geometry
-
 import logging
 import astropy.units as u
 import numpy as np
 import time
+
+from lenskappa.utils.threading import MultiThreadObject
 
 class Region(ABC):
     def __init__(self, center, polygon, *args, **kwargs):
@@ -158,14 +159,14 @@ class SkyRegion(Region):
         try:
             thread_num = kwargs['thread_num']
         except:
-            thread_num = - 1
+            thread_num = 0
 
         point_coords = self._draw_sample(thread_num)
         coord = SkyCoord(point_coords[0], point_coords[1], unit="deg")
         point = geometry.Point(point_coords)
         if not self._polygon.contains(point):
             #If the center of the tile falls outside the region, try again
-            return self.generate_circular_tile(aperture=aperture, *args, **kwargs)
+            return self.generate_circular_tile(aperture=aperture, thread_num = thread_num, *args, **kwargs)
         
         return CircularSkyRegion(coord, aperture)
         
@@ -198,23 +199,16 @@ class SkyRegion(Region):
 
         self._low_sampler_range = [phi_range[0], costheta_range[0]]
         self._high_sampler_range = [phi_range[1], costheta_range[1]]
-        try:
-            logging.info("Default sampler was overridden to keep sample thread-safe.")
-            self._sampler = kwargs['globals']['rng']
-        except:
-            self._sampler = np.random.default_rng(int(time.time()))
+        self._sampler = MultiThreadObject(np.random.default_rng)
 
-    def _draw_sample(self, thread_num = -1):
+    def _draw_sample(self, thread_num = 0):
         try:
             sampler = self._sampler
         except:
             self._init_sampler()
 
         if self._sample_type == "spherical":
-            if thread_num != -1:
-                vals = self._sampler[thread_num].uniform(self._low_sampler_range, self._high_sampler_range)
-            else:    
-                vals = self._sampler.uniform(self._low_sampler_range, self._high_sampler_range)
+            vals = self._sampler[thread_num].uniform(self._low_sampler_range, self._high_sampler_range)
             ra = np.degrees(vals[0])
             theta = np.degrees(np.arccos(vals[1]))
             dec = 90 - theta

@@ -186,6 +186,7 @@ class HSCSurvey(Survey):
         for tract in self._tracts.keys():
             mask_path = os.path.join(mask_location, str(tract))
             if not os.path.exists(mask_path):
+                print(mask_path)
                 logging.warning("Unable to find bright star masks for HSC tract {}".format(tract))
             else:
                 paths.update({tract: mask_path})
@@ -384,9 +385,6 @@ class hsc_mask(StarMaskCollection):
                 final_mask = final_mask & is_masked
             except:
                 logging.error("Couldn't combine boolean masks")
-                print(final_mask)
-                print(is_masked)
-                print(catalog)
                 return pd.DataFrame(columns=catalog.columns)
 
         return catalog.apply_boolean_mask(~final_mask)
@@ -397,7 +395,10 @@ class hsc_mask(StarMaskCollection):
             if tract_id not in self._is_loaded.keys():
                 logging.warning("No masks found for tract {}".format(tract_id))
                 return
-                
+            
+            else:
+                while not self._is_loaded[tract_id]:
+                    time.sleep(1)
             mask = self._masks[tract_id]    
 
             for patch_id in patches:

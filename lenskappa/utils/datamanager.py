@@ -265,7 +265,6 @@ class SurveyDataManager:
             full_path =  os.path.join(self._basepath, self._support_data[support_datatype]['path'], fname)
             if full_path.endswith('.'):
                 full_path = full_path[:-1]
-            print(full_path)
             if os.path.exists(full_path):
                 return full_path
             else:

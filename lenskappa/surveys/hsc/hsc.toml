@@ -1,5 +1,5 @@
 [support_data.tracts_patches]
-path = "support/hsc/tracts_patches"
+path = "support/tracts_patches"
 format = "txt"
 ids = "ref:data_config.meta.field.choices"
 

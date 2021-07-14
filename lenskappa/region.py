@@ -6,7 +6,7 @@ import astropy.units as u
 import numpy as np
 import time
 
-from lenskappa.utils.threading import MultiThreadObject
+from lenskappa.utils.multithreading import MultiThreadObject
 
 class Region(ABC):
     def __init__(self, center, polygon, *args, **kwargs):
@@ -48,15 +48,15 @@ class Region(ABC):
             self._subregions.update({name: self.build_region(center, input_region, *args, **kwargs)})
         self._subregion_centers.update({name: center})
         return True
-    
+
     @property
     def area(self):
         return self._polygon.area
-    
+
     @property
     def center(self):
         return self._center
-    
+
     def get_type(self):
         poly_type = type(self._polygon)
         if poly_type == geometry.Polygon:
@@ -81,14 +81,14 @@ class Region(ABC):
         except:
             reg = second_region
         return self._polygon.intersects(reg)
-    
+
     def get_subregion_intersections(self, second_region):
         sub = []
         for name, subregion in self._subregions.items():
             if subregion.intersects(second_region):
                 sub.append(name)
         return sub
-    
+
     @classmethod
     def union(cls, regions, *args, **kwargs):
         if type(regions) != list:
@@ -99,12 +99,12 @@ class Region(ABC):
         combined = unary_union(shapely_objs)
         return cls(combined.centroid, combined)
 
-        
+
 
 
 class SkyRegion(Region):
     def __init__(self, center, region, *args, **kwargs):
-        
+
         bounds = region.bounds
         ras = np.array([bounds[0], bounds[2]])
         decs = np.array([bounds[1], bounds[3]])
@@ -120,7 +120,7 @@ class SkyRegion(Region):
 
         super().__init__(center, region, *args, **kwargs)
         self._sample_type = "spherical"
-    
+
     @property
     def skycoord(self):
         pass
@@ -155,7 +155,7 @@ class SkyRegion(Region):
         except:
             logging.error("Attempted to draw a tile in the region, but the aperture does not have units")
             return False
-        
+
         try:
             thread_num = kwargs['thread_num']
         except:
@@ -167,10 +167,10 @@ class SkyRegion(Region):
         if not self._polygon.contains(point):
             #If the center of the tile falls outside the region, try again
             return self.generate_circular_tile(aperture=aperture, thread_num = thread_num, *args, **kwargs)
-        
+
         return CircularSkyRegion(coord, aperture)
-        
-        
+
+
     def _init_sampler(self, *args, **kwargs):
         """
         Initialize the sampler for drawing regions.
@@ -181,12 +181,12 @@ class SkyRegion(Region):
             self._init_spherical_sampler(*args, **kwargs)
         else:
             logging.error("Currently, only spherical sampling is implemented")
-    
+
     def _init_spherical_sampler(self, *args, **kwargs):
         bounds = self._polygon.bounds
         ra1,ra2 = bounds[0], bounds[2]
         dec1, dec2 = bounds[1], bounds[3]
-        ra_range = (min(ra1, ra2), max(ra1, ra2)) 
+        ra_range = (min(ra1, ra2), max(ra1, ra2))
         dec_range = (min(dec1, dec2), max(dec1, dec2))
         phi_range = np.radians(ra_range)
         #Keeping everything in radians for simplicity
@@ -219,7 +219,7 @@ class SkyRegion(Region):
             return self._polygon.contains(obj._polygon)
         elif type(obj) == geometry.Point:
             return self._polygon.contains(obj)
-    
+
 class CircularSkyRegion(SkyRegion):
 
     def __init__(self, center, radius, *args, **kwargs):
@@ -235,7 +235,7 @@ class CircularSkyRegion(SkyRegion):
         except:
             logging.error("Unable to initialize point {}. Expected a SkyCoord".format(center))
             return(None)
-        
+
         try:
             rad = radius.to(u.degree)
             self._radius = rad
@@ -243,7 +243,7 @@ class CircularSkyRegion(SkyRegion):
         except:
             logging.error("Unable creat circle of radius {}. Radius should be an astropy quantity".format(radius))
         super().__init__(center, circle)
-    
+
     @property
     def skycoord(self):
         return self._coord, self._radius

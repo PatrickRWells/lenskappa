@@ -14,7 +14,7 @@ from lenskappa.catalog import Catalog
 from lenskappa.region import Region
 from lenskappa.weighting import weighting
 from lenskappa.surveys.survey import Survey
-from lenskappa.utils.threading import MultiThreadObject
+from lenskappa.utils.multithreading import MultiThreadObject
 
 
 class Counter:
@@ -275,7 +275,7 @@ class Counter:
         num_workers = num_threads - 1
         self._reference_survey.wait_for_setup()
         #MultiThreadObject runs a check to make sure the number of threads is valid
-        #So get the actual number from it after setting just to be safe. 
+        #So get the actual number from it after setting just to be safe.
 
         #The default numpy RNG is not thread safe, so we have to create several
         #This needs a more elegant solution
@@ -381,7 +381,7 @@ class Counter:
                 pass
 
             if type(weight_values) == pd.Series:
-                
+
                 field_weight = np.sum(weight_values)
                 control_weight = np.sum(control_weights[weight_name])
                 try:

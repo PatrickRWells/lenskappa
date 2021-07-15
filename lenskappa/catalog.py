@@ -6,50 +6,13 @@ import logging
 from astropy.coordinates.sky_coordinate import SkyCoord
 from shapely import geometry
 from copy import deepcopy
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
+
 from lenskappa.region import CircularSkyRegion, SkyRegion
-
-def require_points(fn):
-    """
-    Decorator to check that the object points in a catalog have
-    been initialized
-    """
-    def wrapper(self, *args, **kwargs):
-        if not self._points_initialized:
-            self._init_points()
-        return fn(self, *args, **kwargs)
-    return wrapper
+from lenskappa.utils.decorators import require_points, require_validation
 
 
-def require_validation(params, *args, **kwargs):
-    """
-    Decorator to ensure a particular set of parameters
-    Have been validate against the input catalog
-    eg:
-    @require_validation(['x', 'y'])
-    def func(self, *args, **kwargs)
-
-    This would ensure that the parameters x, and y have been mapped
-    to the appropriate catalog columns and their types are valid
-
-    """
-    def outer(fn, *args, **kwargs):
-
-        def wrapper(self, *args, **kwargs):
-            try:
-                checkvalid = self._valid
-            except:
-                logging.warning("Catalog parameters have not been validated!")
-                return None
-            isvalid = [checkvalid[name] for name in params]
-            if np.all(isvalid):
-                return fn(self, *args, **kwargs)
-            else:
-                logging.error("Catalog parameter(s) {} are not valid".format([par for index, par in enumerate(pars) if not isvalid[index]]))
-        return wrapper
-    return outer
-
-class Catalog(metaclass=ABCMeta):
+class Catalog(ABC):
 
     def __init__(self, cat, base_parmap = {}, partypes = {}, *args, **kwargs):
         self._cat = cat
@@ -118,14 +81,15 @@ class Catalog(metaclass=ABCMeta):
         except:
             logging.error("Pandas could not read file {}".format(file))
             return None
+
     @classmethod
     def from_dataframe(cls, cat, *args, **kwargs):
         return cls(cat, *args, **kwargs)
-    
+
     def apply_boolean_mask(self, mask):
         df = self._cat.loc[self._cat[mask].index]
         return self.from_dataframe(df, parmap=self._parmap)
-    
+
     def replace_values_by_mask(self, mask, column, value):
         """
         Returns a new catalog where values that fall outside the mask
@@ -137,7 +101,7 @@ class Catalog(metaclass=ABCMeta):
         return self.from_dataframe(df, parmap=self._parmap)
 
 
-        
+
 
     def load_params(self, input_map, *args, **kwargs):
         """
@@ -202,7 +166,7 @@ class Catalog(metaclass=ABCMeta):
     @abstractmethod
     def filter_by_subregion(self, *args, **kwargs):
         pass
-    
+
     @abstractmethod
     def get_objects_in_region(self, region):
         pass
@@ -235,7 +199,7 @@ class Catalog2D(Catalog):
         if regtype in [SkyRegion, CircularSkyRegion]:
             self._subregions.update({name: {'region': reg} } )
         else:
-            logging.error("Tried to add a subregion, but the region was not a polygon")    
+            logging.error("Tried to add a subregion, but the region was not a polygon")
 
 
     @require_points
@@ -250,7 +214,7 @@ class Catalog2D(Catalog):
         if name not in self._subregions.keys():
             logging.error("Subregion {} does not exist".format(name))
             return
-        
+
         try:
             mask = self._subregions[name]['mask']
         except:
@@ -312,10 +276,10 @@ class Catalog2D(Catalog):
     @require_points
     def get_objects_in_region(self, region):
         #Note, this is a very simple implementationt that will be inefficient for very large regions
-        #It is recommended that you override this for larger catalogs 
+        #It is recommended that you override this for larger catalogs
         mask = np.array([region.contains(point) for point in self._points])
         return self[mask]
-        
+
 
 
 class SkyCatalog2D(Catalog2D):
@@ -428,5 +392,5 @@ class SkyCatalog2D(Catalog2D):
                 sub_mask = sub_mask & self._cat[column].isin(keys)
 
             final_mask = final_mask | sub_mask
-        
+
         return self.apply_boolean_mask(final_mask)

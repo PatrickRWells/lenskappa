@@ -1,2 +1,4 @@
-from .hsc import HSCSurvey as hsc
-from .cfht import CFHTSurvey as cfht
+
+from .hsc.hsc import HSCSurvey as hsc
+from .cfht.cfht import CFHTSurvey as cfht
+

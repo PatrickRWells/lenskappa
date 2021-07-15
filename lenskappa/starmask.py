@@ -6,9 +6,9 @@ import numpy as np
 
 from shapely import geometry, affinity
 from astropy.coordinates import SkyCoord
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 
-class StarMask(metaclass=ABCMeta):
+class StarMask(ABC):
 
     def __init__(self, data, center):
         """

@@ -5,7 +5,7 @@ import argparse
 from copy import copy
 import hashlib
 import appdirs
-
+from sys import exit
 import lenskappa
 
 class SurveyDataManager:
@@ -37,10 +37,9 @@ class SurveyDataManager:
 
         self._survey = survey
         base = os.path.dirname(lenskappa.__file__)
-        self._basepath = os.path.join(base, 'surveys')
-        base_configpath = os.path.join(base, 'surveys', 'config')
+        self._basepath = os.path.join(base, 'surveys', survey)
         fname = '.'.join([survey, 'toml'])
-        self._survey_config_location = os.path.join(base_configpath, fname)
+        self._survey_config_location = os.path.join(self._basepath, fname)
         try:
             survey_config = toml.load(self._survey_config_location)
             self._validate_survey_config(survey_config)
@@ -132,7 +131,6 @@ class SurveyDataManager:
                     ref_key = '.'.join(['support_data', dataname, dataid])
                     self._parse_config_ref(ref_key, datainfo)
             self._support_data.update({dataname: datavalue})
-
 
 
     def _parse_config_ref(self, ref_key, ref_value):

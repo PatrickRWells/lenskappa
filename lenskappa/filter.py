@@ -1,10 +1,10 @@
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 import logging
 from os import makedev
 import numpy as np
 
 
-class Filter(metaclass=ABCMeta):
+class Filter(ABC):
 
     def __init__(self, filter_type=None, *args, **kwargs):
         """

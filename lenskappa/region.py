@@ -157,7 +157,7 @@ class SkyRegion(Region):
             return False
 
         try:
-            thread_num = kwargs['thread_num']
+            thread_num = kwargs.pop('thread_num')
         except:
             thread_num = 0
 

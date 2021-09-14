@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 
 from lenskappa.region import CircularSkyRegion, SkyRegion
 from lenskappa.utils.decorators import require_points, require_validation
+from lenskappa.params import QuantCatalogParam
 
 
 class Catalog(ABC):
@@ -29,7 +30,7 @@ class Catalog(ABC):
         Allows for masking as with a usual dataframe
         """
         if key in self._parmap.keys():
-            return self._cat[self._parmap[key]]
+            return self._parmap[key].get_values(self._cat)
         else:
             return self._cat[key]
 
@@ -101,8 +102,6 @@ class Catalog(ABC):
         return self.from_dataframe(df, parmap=self._parmap)
 
 
-
-
     def load_params(self, input_map, *args, **kwargs):
         """
         Used for marking catalog columns with standard labels
@@ -129,6 +128,11 @@ class Catalog(ABC):
 
         for par, parmap in input_map.items():
             self._parmap.update({par: parmap})
+
+        final_parmap = {}
+        for par, parmap in self._parmap.items():
+            par_obj = QuantCatalogParam(par, parmap, *args, **kwargs)
+        self._parmap = final_parmap
         self._validate_parmap()
 
     def _validate_parmap(self):
@@ -143,9 +147,9 @@ class Catalog(ABC):
         self._valid = {}
         for par, partype in self._needed_parameter_types.items():
 
-            single_parmap = self._parmap[par]
+            single_par = self._parmap[par]
             try:
-                col = self._cat[single_parmap]
+                col = single_par.get_values(self._cat)
             except:
                 logging.warning("Unable to find column {} in data".format(single_parmap))
                 self._valid.update({par: False})

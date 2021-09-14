@@ -29,6 +29,7 @@ class CatalogParam(Param):
 
         except:
             logging.error("Unable to find values for paramater {} in catalog".format(self._std_name))
+            raise
 
 class QuantCatalogParam(CatalogParam):
     """

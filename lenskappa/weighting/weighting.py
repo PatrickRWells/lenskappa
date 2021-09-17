@@ -61,7 +61,7 @@ class weight:
         
         self._parmap = cat_pars
 
-        return self._weightfn(catalog, self._parmap)    
+        return self._weightfn(catalog)
 
 
 def load_all_weights():
@@ -88,7 +88,8 @@ def load_some_weights(weight_names):
         try:
             weightfn = weight(name, weight_config)
             weights.update({name: weightfn})
-        except:
+        except Exception as e:
+            print(e) 
             logging.warning("Unable to find weight function {}. Skipping...".format(name))
     if len(weights) != 0:
         return(weights)

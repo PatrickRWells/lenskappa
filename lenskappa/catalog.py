@@ -141,9 +141,6 @@ class Catalog(ABC):
         for par in input_map:
             self._parmap.update({par.standard: par})
 
-
-        self._inverse_map = {p.col: p.standard for p in self._parmap.values()}
-
         self._validate_parmap()
 
     def _validate_parmap(self):
@@ -177,6 +174,13 @@ class Catalog(ABC):
                 logging.error("Unable to cast column {} as type {}".format(single_par.col, partype))
                 self._valid.update({par : False})
 
+            self._inverse_map = {p.col: p.standard for p in self._parmap.values()}
+
+
+    def add_param(self, par):
+        name = par.standard
+        if name not in self._parmap.keys():
+            self._parmap.update({name: par})
 
     @abstractmethod
     def add_subregion(self, *args, **kwargs):

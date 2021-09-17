@@ -1,116 +1,91 @@
 import numpy as np
 
-def gal(cat, data):
+def gal(cat):
     """
     Simply counts the number of galaxies
     """
     return len(cat)
 
-def zweight(cat, data):
-    z_gal = cat[data['z_gal']]
-    z_s = data['z_s']
+def zweight(cat):
+    z_gal = cat['z_gal']
+    z_s = cat['z_s']
     return z_s*z_gal - z_gal*z_gal
 
-def mass(cat, data, is_log = True):
-    if is_log:
-        m_gal_logs = cat[data['m_gal']]
-        return 10**(m_gal_logs)
-    else:
-        return cat[data['m_gal']]
+def mass(cat):
+    return cat['m_gal']
 
-def mass2(cat, data, is_log = True):
-    masses = mass(cat, data, is_log)
+def mass2(cat):
+    masses = mass(cat)
     return masses**2
 
-def mass3(cat, data, is_log = True):
-    masses = mass(cat, data, is_log)
+def mass3(cat):
+    masses = mass(cat)
     return masses**3
 
-def oneoverr(cat, data):
-    rs = cat[data['r']]
+def oneoverr(cat):
+    rs = cat['r'].value
     return 1.0/rs
 
-def zoverr(cat, data):
-    zweights = zweight(cat, data)
-    rs = cat[data['r']]
+def zoverr(cat):
+    zweights = zweight(cat)
+    rs = cat['r'].value
     return zweights/rs
 
-def massoverr(cat, data, is_log = True):
-    if is_log:
-        masses = 10**(cat[data['m_gal']])
-    else:
-        masses = cat[data['m_gal']]
-    rs = cat[data['r']]
+def massoverr(cat):
+    masses = cat['m_gal']
+    rs = cat['r'].value
     return masses/rs
 
-def mass2overr(cat, data, is_log = True):
-    if is_log:
-        masses = 10**(cat[data['m_gal']])
-    else:
-        masses = cat[data['m_gal']]
-    rs = cat[data['r']]
+def mass2overr(cat):
+    masses = cat['m_gal']
+    rs = cat['r'].value
     return masses**2/rs
 
-def mass3overr(cat, data, is_log = True):
-    if is_log:
-        masses = 10**(cat[data['m_gal']])
-    else:
-        masses = cat[data['m_gal']]
-    rs = cat[data['r']]
+def mass3overr(cat):
+    masses = cat['m_gal']
+    rs = cat['r'].value
     return masses**3/rs
-def mass2rms(cat, data, is_log = True):
+def mass2rms(cat):
     # This weight can only return a single value. There are no relative weights
-    weights = mass2(cat, data, is_log)
+    weights = mass2(cat)
     return np.sqrt(sum(weights))
-def mass3rms(cat, data, is_log = True):
+def mass3rms(cat):
     # This weight can only return a single value. There are no relative weights
-    weights = mass3(cat, data, is_log)
+    weights = mass3(cat)
     return np.cbrt(sum(weights))
 
-def mass2overrms(cat, data, is_log = True):
+def mass2overrms(cat):
     # This weight can only return a single value. There are no relative weights
-    weights = mass2overr(cat, data, is_log = True)
+    weights = mass2overr(cat)
     return np.sqrt(sum(weights))
 
-def mass3overrms(cat, data, is_log = True):
+def mass3overrms(cat):
     # This weight can only return a single value. There are no relative weights
-    weights = mass3overr(cat, data, is_log = True)
+    weights = mass3overr(cat)
     return np.cbrt(sum(weights))
 
-def flexion(cat, data, is_log = True):
-    if is_log:
-        m_gals = 10**(cat[data['m_gal']])
-    else:
-        m_gals = cat[data['m_gal']]
-
-    rs = cat[data['r']]
+def flexion(cat):
+    m_gals = cat['m_gal']
+    rs = cat['r'].value
     return m_gals/(rs**3)
 
-def tidal(cat, data, is_log = True):
-    if is_log:
-        m_gals = 10**(cat[data['m_gal']])
-    else:
-        m_gals = cat[data['m_gal']]
+def tidal(cat):
+    m_gals = cat['m_gal']
 
-    rs = cat[data['r']]
+    rs = cat['r'].value
     return m_gals/(rs**2)
 
-def convergence(cat, data, is_log = True):
-    if is_log:
-        m_gals = 10**(cat[data['m_gal']])
-    else:
-        m_gals = cat[data['m_gal']]
-    rs = cat[data['r']]
+def convergence(cat):
+    m_gals = cat['m_gal']
+    rs = cat['r'].value
     return np.sqrt(m_gals)/rs
 
-def convergencehalo(cat, data, is_log = True):
-    halo_masses = compute_halomass(cat, data, islog=True)
-    if is_log:
-        m_halos = 10**halo_masses
-    rs = cat[data['r']]
-    return np.sqrt(m_halos)/rs
+def convergencehalo(cat):
+    halo_masses = compute_halomass(cat)
+    rs = cat['r'].value
+    return np.sqrt(halo_masses)/rs
 
-def compute_halomass(cat, data, islog=True):
+def compute_halomass(cat):
     # z <= 1
     M10_ = 12.35
     M1a_ = 0.28
@@ -134,8 +109,8 @@ def compute_halomass(cat, data, islog=True):
     g0 = 1.12
     ga = -0.53
 
-    z_gal = cat[data['z_gal']]
-    m_gal = cat[data['m_gal']]
+    z_gal = cat['z_gal']
+    m_gal = cat['m_gal']
     halo_masses = np.zeros(len(m_gal))
     i = 0
     for index, z in z_gal.iteritems():

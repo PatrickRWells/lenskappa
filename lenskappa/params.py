@@ -60,3 +60,12 @@ class QuantCatalogParam(CatalogParam):
         else:
             return vals
 
+class SingleValueParam(CatalogParam):
+    
+    def __init__(self, name, value):
+        super().__init__(name, name)
+        self._value = value
+
+
+    def get_values(self, *args, **kwargs):
+        return self._value

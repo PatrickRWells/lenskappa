@@ -16,7 +16,8 @@ from shapely.geometry import geo
 
 from lenskappa.catalog import SkyCatalog2D
 from lenskappa.simulations.simulation import Simulation
-from lenskappa.params import QuantCatalogParam
+from lenskappa.params import QuantCatalogParam, SingleValueParam
+from lenskappa.weighting.weighting import load_all_weights, load_some_weights
 from shapely import geometry
 import pandas as pd
 
@@ -87,7 +88,6 @@ class millenium_simulation(Simulation):
         matched_files = list(filter(r.match, files))
         if len(matched_files) > 1:
             logging.error("Too many kappa files found for index {} and {}".format(x, y))
-            print(matched_files)
             return
         elif len(matched_files) == 0:
             logging.error("No kappa files found for index {} and {}".format(x,y))
@@ -118,7 +118,7 @@ class millenium_simulation(Simulation):
             logging.error("Unable to reshape kappa data into a 4096x4096 array")
             raise
 
-    def load_catalogs_by_field(self, x, y, z_max = -1):
+    def load_catalogs_by_field(self, x, y, z_s = -1):
         """
         Loads catalogs for the field given by x,y
         """
@@ -133,7 +133,9 @@ class millenium_simulation(Simulation):
         elif len(matched_files) < 16:
             logging.error("Not enough catalog files found for index {} and {}".format(x,y))
             return
-        cat = self._load_catalog_files(catalog_directory, matched_files, z_max=z_max)
+        cat = self._load_catalog_files(catalog_directory, matched_files, z_max=z_s)
+        z_s_par = SingleValueParam("z_s", z_s)
+        cat.add_param(z_s_par)
         try:
             all_catalog = self._catalog_data
         except:
@@ -157,26 +159,33 @@ class millenium_simulation(Simulation):
         combined = pd.concat(dfs, ignore_index=True)
         ra_par = QuantCatalogParam("pos_0[rad]", 'ra', u.radian)
         dec_par = QuantCatalogParam("pos_1[rad]", "dec", u.radian)
-        pars = [ra_par, dec_par]
+        z_par = QuantCatalogParam("z_spec", 'z_gal')
+        pars = [ra_par, dec_par, z_par]
         if z_max > 0:
             combined.drop(combined[combined['z_spec'] > z_max].index, inplace=True)
         return SkyCatalog2D(combined, params=pars)
 
 
-    def compute_weights(self, x, y, z_max, aperture = 120*u.arcsec, *args, **kwargs):
+    def compute_weights(self, x, y, z_s, aperture = 120*u.arcsec, which='all', *args, **kwargs):
         """
         Compute weights for a given field
         """
+        if which == 'all':
+            weightfns = load_all_weights()
+        else:
+            weightfns = load_some_weights(which)
+
+        weight_frame = pd.DataFrame(columns=weightfns.keys())
         x_grid, y_grid = self._generate_grid(aperture, *args, **kwargs)
-        self.load_catalogs_by_field(x, y, z_max = z_max)
+        self.load_catalogs_by_field(x, y, z_s = z_s)
         key = "{}_{}".format(str(x),str(y))
         catalog = self._catalog_data[key]
         for i_x in x_grid:
             for i_y in y_grid:
                 center = millenium_simulation.get_position_from_index(i_x, i_y)
                 newcat = self._filter_catalog(catalog, center, aperture)
-                print("{}, {}: {}".format(str(i_x), str(i_y), len(newcat)))
-            
+                weights = {name: np.sum(weight.compute_weight(newcat)) for name, weight in weightfns.items()}
+                print(weights)            
 
 
     def _generate_grid(self, aperture = 120*u.arcsec, *args, **kwargs):
@@ -287,4 +296,4 @@ class millenium_simulation(Simulation):
 
 if __name__ == "__main__":
     ms = millenium_simulation()
-    ms.compute_weights(1, 1, z_max = 1.523)
+    ms.compute_weights(1, 1, z_s = 1.523, which=['gal', 'oneoverr', 'zoverr'])

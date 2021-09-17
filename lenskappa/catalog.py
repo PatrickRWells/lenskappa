@@ -1,3 +1,4 @@
+from lenskappa.params import QuantCatalogParam
 import pandas as pd
 import numpy as np
 import astropy.units as u
@@ -5,7 +6,6 @@ import logging
 
 from astropy.coordinates.sky_coordinate import SkyCoord
 from shapely import geometry
-from copy import deepcopy
 from abc import ABC, abstractmethod
 
 from lenskappa.region import CircularSkyRegion, SkyRegion
@@ -17,9 +17,9 @@ class Catalog(ABC):
     def __init__(self, cat, base_parmap = {}, partypes = {}, *args, **kwargs):
         self._cat = cat
         self._needed_parameter_types = partypes
-        self._parmap = base_parmap
+        self._base_parmap = base_parmap
         try:
-            new_parmap = kwargs['parmap']
+            new_parmap = kwargs['params']
             self.load_params(new_parmap)
         except:
             self._validate_parmap()
@@ -29,7 +29,9 @@ class Catalog(ABC):
         Allows for masking as with a usual dataframe
         """
         if key in self._parmap.keys():
-            return self._cat[self._parmap[key]]
+            return self._parmap[key].get_values(self._cat)
+        elif key in self._inverse_map.keys():
+            return self._parmap[self._inverse_map[key]].get_values(self._cat)
         else:
             return self._cat[key]
 
@@ -101,8 +103,6 @@ class Catalog(ABC):
         return self.from_dataframe(df, parmap=self._parmap)
 
 
-
-
     def load_params(self, input_map, *args, **kwargs):
         """
         Used for marking catalog columns with standard labels
@@ -114,21 +114,23 @@ class Catalog(ABC):
                 is the standard column name and the value is the
                 actual column name.
         """
-
         try:
-            parmap = self._parmap
+            parmap = self._base_parmap
         except:
-            self._parmap = {}
-
-        for par, parmap in self._parmap.items():
-            try:
-                input_parmap = input_map[par]
-                self._parmap.update({par: input_parmap})
-            except:
+            self._base_parmap = {}
+        inputed_pars = [par.standard for par in input_map]
+        for par, parmap in self._base_parmap.items():
+            if parmap in inputed_pars:
+                pass
+            else:
                 logging.warning("No rename found for parameter {}, defaulting to {}".format(par, parmap))
+        self._parmap = {}
+        for par in input_map:
+            self._parmap.update({par.standard: par})
 
-        for par, parmap in input_map.items():
-            self._parmap.update({par: parmap})
+
+        self._inverse_map = {p.col: p.standard for p in self._parmap.values()}
+
         self._validate_parmap()
 
     def _validate_parmap(self):
@@ -142,12 +144,16 @@ class Catalog(ABC):
         """
         self._valid = {}
         for par, partype in self._needed_parameter_types.items():
-
-            single_parmap = self._parmap[par]
             try:
-                col = self._cat[single_parmap]
+                single_par = self._parmap[par]
             except:
-                logging.warning("Unable to find column {} in data".format(single_parmap))
+                base_par = self._base_parmap[par]
+                single_par = self._parmap[base_par]
+
+            try:
+                col = single_par.get_values(self._cat)
+            except:
+                logging.warning("Unable to find column {} in data".format(single_par.col))
                 self._valid.update({par: False})
                 continue
 
@@ -155,7 +161,7 @@ class Catalog(ABC):
                 coldata = col.astype(partype)
                 self._valid.update({par : True})
             except:
-                logging.error("Unable to cast column {} as type {}".format(single_parmap, partype))
+                logging.error("Unable to cast column {} as type {}".format(single_par.col, partype))
                 self._valid.update({par : False})
 
 
@@ -301,13 +307,18 @@ class SkyCatalog2D(Catalog2D):
         try:
             return self._skypoints
         except:
-            self._skypoints = SkyCoord(self._cat[self._parmap['x']], self._cat[self._parmap['y']], unit="deg")
+            self._skypoints = SkyCoord(self['ra'], self['dec'])
             return self._skypoints
+
+    def get_points(self,):
+        return self.get_coords()
 
     def get_distances(self, center: SkyCoord, unit=u.arcsec, *args, **kwargs):
         coords = self.get_coords()
-        distances = center.separation(coords).to(unit)
+        distances = center.separation(coords).to(unit).value
         self._cat['distance'] = distances
+        dist_par = QuantCatalogParam('distance', 'r', unit)
+        self._parmap.update({dist_par.standard: dist_par})
 
 
     def add_subregion(self, name, region, *args, **kwargs):

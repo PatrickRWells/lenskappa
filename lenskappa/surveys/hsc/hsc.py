@@ -12,7 +12,6 @@ import re
 import time
 
 from lenskappa.surveys.survey import Survey
-from lenskappa import SurveyDataManager
 from lenskappa.region import SkyRegion
 from lenskappa.catalog import SkyCatalog2D
 from lenskappa.starmask import StarMaskCollection, RegStarMask
@@ -20,15 +19,17 @@ from lenskappa.starmask import StarMaskCollection, RegStarMask
 
 class HSCSurvey(Survey):
 
-    datamanager = SurveyDataManager("hsc")
     def __init__(self, field, frame=None, *args, **kwargs):
+
         self._field = field
         self._exec = futures.ProcessPoolExecutor()
         self._frame = frame
-        super().__init__(*args, **kwargs)
+        super().__init__("hsc", *args, **kwargs)
+
         #setup is called automatically by the superclass constructor
 
     def setup(self, *args, **kwargs):
+
         self._load_tract_data(*args, **kwargs)
         self._load_starmasks(*args, **kwargs)
         self._load_catalog_data(*args, **kwargs)
@@ -63,6 +64,7 @@ class HSCSurvey(Survey):
 
 
     def _get_patch_overlaps(self, region):
+
         tracts = []
         patches = {}
         for id, tract in self._tracts.items():
@@ -137,11 +139,12 @@ class HSCSurvey(Survey):
         Used to split up data, making it easier to manage
 
         """
-        tractfile = self.datamanager.get_support_file_location({'type': 'tracts_patches', 'id': self._field})
+        tractfile = self._datamanager.get_support_file_location({'type': 'tracts_patches', 'id': self._field})
         self._tract_masks = {}
         try:
             tracts = HSCSurvey._parse_tractfile(tractfile)
             self._tracts = self._parse_tractdata(tracts, *args, **kwargs)
+            
         except Exception as e:
             logging.error("Unable to read in tract data for HSC field {}".format(self._field))
             traceback.print_tb(e.__traceback__)
@@ -163,7 +166,7 @@ class HSCSurvey(Survey):
         """
         Returns catalog for a given HSC field
         """
-        file = self.datamanager.get_file_location({'field': self._field, 'datatype': 'catalog'})
+        file = self._datamanager.get_file_location({'field': self._field, 'datatype': 'catalog'})
         self._cached_catalogs = {}
         if file:
             print("Reading in catalog for HSC field {}. This may take a while".format(self._field))
@@ -181,7 +184,7 @@ class HSCSurvey(Survey):
         Because the astropy Regions package is quite slow
         """
         logging.info("Reading in star masks for HSC field {}".format(self._field))
-        mask_location = self.datamanager.get_file_location({'field': 'global', 'datatype': 'starmask'})
+        mask_location = self._datamanager.get_file_location({'field': 'global', 'datatype': 'starmask'})
         paths = {}
         for tract in self._tracts.keys():
             mask_path = os.path.join(mask_location, str(tract))
@@ -423,3 +426,7 @@ class hsc_mask(StarMaskCollection):
         catalog = external_catalog.rotate(external_center, internal_center)
         masked_catalog = self.mask_catalog(catalog, internal_region, patches)
         return masked_catalog
+
+if __name__ == "__main__":
+
+    survey = HSCSurvey("W02")

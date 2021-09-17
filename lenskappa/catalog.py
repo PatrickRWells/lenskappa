@@ -22,6 +22,10 @@ class Catalog(ABC):
             new_parmap = kwargs['params']
             self.load_params(new_parmap)
         except:
+            try:
+                self._parmap = kwargs['parmap']
+            except:
+                pass
             self._validate_parmap()
 
     def __getitem__(self, key):
@@ -90,7 +94,12 @@ class Catalog(ABC):
 
     def apply_boolean_mask(self, mask):
         df = self._cat.loc[self._cat[mask].index]
-        return self.from_dataframe(df, parmap=self._parmap)
+        try:
+            input_points = self._points[mask]
+            return self.from_dataframe(df, parmap=self._parmap, points = input_points)
+        except:
+            return self.from_dataframe(df, parmap=self._parmap)
+
 
     def replace_values_by_mask(self, mask, column, value):
         """
@@ -100,7 +109,11 @@ class Catalog(ABC):
         df = self._cat.copy()
         colname = self.get_colname(column)
         df.loc[~mask, colname] = value
-        return self.from_dataframe(df, parmap=self._parmap)
+        try:
+            input_points = self._points[mask]
+            return self.from_dataframe(df, parmap=self._parmap, points = input_points)
+        except:
+            return self.from_dataframe(df, parmap=self._parmap)
 
 
     def load_params(self, input_map, *args, **kwargs):
@@ -181,7 +194,6 @@ class Catalog2D(Catalog):
     def __init__(self, cat, base_parmap = {}, *args, **kwargs):
         needed_parameter_types = {'x': float, 'y': float}
         super().__init__(cat, base_parmap, partypes=needed_parameter_types, *args, **kwargs)
-        self._points_initialized = False
         self._subregions = {}
         self._unions = {}
 
@@ -225,8 +237,11 @@ class Catalog2D(Catalog):
             mask = self._subregions[name]['mask']
         except:
             mask = self._init_subregion[name]
-
-        return self.from_dataframe(cat=self._cat[mask], parmap=self._parmap)
+        try:
+            input_points = self._points[mask]
+            return self.from_dataframe(cat=self._cat[mask], parmap=self._parmap, points = input_points)
+        except:
+            return self.from_dataframe(cat=self._cat[mask], parmap=self._parmap)
 
     @require_points
     def filter_by_subregions(self, subregions, *args, **kwargs):
@@ -305,10 +320,11 @@ class SkyCatalog2D(Catalog2D):
 
     def get_coords(self):
         try:
-            return self._skypoints
+            return self._points
         except:
-            self._skypoints = SkyCoord(self['ra'], self['dec'])
-            return self._skypoints
+            self._points = SkyCoord(self['ra'], self['dec'])
+            self._points_initialized = True
+            return self._points
 
     def get_points(self,):
         return self.get_coords()
@@ -379,12 +395,8 @@ class SkyCatalog2D(Catalog2D):
     def get_objects_in_region(self, region, *args, **kwargs):
         if type(region) == CircularSkyRegion:
             center, radius = region.skycoord
-
-            coords = self.get_coords()
-            distances = coords.separation(center)
-            self._cat['dist'] = distances
-            mask = (distances <= radius)
-            self._parmap.update({'r': 'dist'})
+            self.get_distances(center)
+            mask = self['r'] <= radius
             item = self.apply_boolean_mask(mask)
             return item
         else:

@@ -46,15 +46,15 @@ class millenium_simulation(Simulation):
         initialize a single region and projected different catalogs
         onto it as needed
         """
-        half_width = (2.0*u.degree).to(u.radian).value
-        region = geometry.box(-half_width, -half_width, half_width, half_width) #in degrees
-        center = geometry.Point(0, 0)
+        width = (4.0*u.degree).to(u.radian).value
+        region = geometry.box(0, 0, width, width) #in degrees
+        center = geometry.Point(2, 2)
         self._region = SkyRegion(center, region, override=True, *args, **kwargs)
         self._init_subregions(*args, **kwargs)
 
     def _init_subregions(self, *args, **kwargs):
         width = (1.0*u.degree).to(u.radian).value
-        min = (-1.5*u.degree).to(u.radian).value
+        min = (0.5*u.degree).to(u.radian).value
         for x_i in range(4):
             for y_i in range(4):
 
@@ -136,12 +136,7 @@ class millenium_simulation(Simulation):
         cat = self._load_catalog_files(catalog_directory, matched_files, z_max=z_s)
         z_s_par = SingleValueParam("z_s", z_s)
         cat.add_param(z_s_par)
-        try:
-            all_catalog = self._catalog_data
-        except:
-            self._catalog_data = {}
-        key = "{}_{}".format(str(x), str(y))
-        self._catalog_data.update({key: cat})
+        self._catalog = cat
 
     
     def _load_catalog_files(self, directory, matched_files, z_max = -1):
@@ -160,10 +155,15 @@ class millenium_simulation(Simulation):
         ra_par = QuantCatalogParam("pos_0[rad]", 'ra', u.radian)
         dec_par = QuantCatalogParam("pos_1[rad]", "dec", u.radian)
         z_par = QuantCatalogParam("z_spec", 'z_gal')
+
         pars = [ra_par, dec_par, z_par]
+        combined['pos_0[rad]'] += (2.0*u.degree).to(u.radian).value
+        combined['pos_1[rad]'] += (2.0*u.degree).to(u.radian).value
+
         if z_max > 0:
             combined.drop(combined[combined['z_spec'] > z_max].index, inplace=True)
         return SkyCatalog2D(combined, params=pars)
+
 
 
     def compute_weights(self, x, y, z_s, aperture = 120*u.arcsec, which='all', *args, **kwargs):
@@ -176,13 +176,10 @@ class millenium_simulation(Simulation):
             weightfns = load_some_weights(which)
 
         weight_frame = pd.DataFrame(columns=weightfns.keys())
-        x_grid, y_grid = self._generate_grid(aperture, *args, **kwargs)
-        self.load_catalogs_by_field(x, y, z_s = z_s)
         key = "{}_{}".format(str(x),str(y))
         catalog = self._catalog_data[key]
         for i_x in x_grid:
             for i_y in y_grid:
-                center = millenium_simulation.get_position_from_index(i_x, i_y)
                 newcat = self._filter_catalog(catalog, center, aperture)
                 weights = {name: np.sum(weight.compute_weight(newcat)) for name, weight in weightfns.items()}
                 print(weights)            
@@ -191,8 +188,8 @@ class millenium_simulation(Simulation):
     def _generate_grid(self, aperture = 120*u.arcsec, *args, **kwargs):
         #First, find the corners of the tiling region.
         #Since we don't allow tiles to overlap with the edge of the field.
-        min_pos = -2.0*u.degree + aperture
-        max_pos = 2.0*u.degree - aperture
+        min_pos = 0.0*u.degree + aperture
+        max_pos = 4.0*u.degree - aperture
         bl_corner = millenium_simulation.get_index_from_position(min_pos, min_pos)
         tr_corner = millenium_simulation.get_index_from_position(max_pos, max_pos)
         #Since there's rounding involved above, check to make sure the tiles don't
@@ -200,8 +197,8 @@ class millenium_simulation(Simulation):
         min_pos_x, min_pos_y = millenium_simulation.get_position_from_index(*bl_corner)
         max_pos_x, max_pos_y = millenium_simulation.get_position_from_index(*tr_corner)
 
-        min_vals = -2.0*u.degree
-        max_vals = 2.0*u.degree
+        min_vals = 0.0*u.degree
+        max_vals = 4.0*u.degree
         
         x_diff = min_pos_x - min_vals
         y_diff = min_pos_y - min_vals
@@ -241,15 +238,25 @@ class millenium_simulation(Simulation):
         
         return x_grid, y_grid
 
-    def _filter_catalog(self, cat, center, aperture):
-        cat.get_points()
-        poly_r = aperture.to(u.radian).value
-        poly = geometry.Point(center[0].value, center[1].value).buffer(poly_r)
+    def get_ciruclar_tile(self, aperture, *args, **kwargs):
+        x_grid, y_grid = self._generate_grid(aperture, *args, **kwargs)
+        #Assumption is that the aperture isn't changing during a run
+        #maybe should change that
+        for x_i in x_grid:
+            for y_i in y_grid:
+                center = millenium_simulation.get_position_from_index(x_i, y_i)
+                region = CircularSkyRegion(SkyCoord(*center), aperture)
+                yield region
+
+
+    def get_objects_in_region(self, region):
+        self._catalog.get_points()
+        poly = region.get_polygon(unit=u.radian)
         subregion_overlaps = self._region.get_subregion_intersections(poly)
-        region = CircularSkyRegion(SkyCoord(*center), aperture)
-        newcat = cat.filter_by_columns([{'subregion': subregion_overlaps}])
+        newcat = self._catalog.filter_by_columns([{'subregion': subregion_overlaps}])
         final_cat = newcat.get_objects_in_region(region)
         return final_cat
+
         
     @classmethod
     def get_position_from_index(cls, x, y):
@@ -263,8 +270,8 @@ class millenium_simulation(Simulation):
         l_field = (4.0*u.degree).to(u.radian) #each field is 4 deg x 4 deg
         n_pix = 4096.0
         l_pix = l_field/n_pix
-        pos_x =  -0.5*l_field + (x+0.5) * l_pix
-        pos_y =  -0.5*l_field + (y+0.5) * l_pix
+        pos_x =  (x+0.5) * l_pix
+        pos_y =  (y+0.5) * l_pix
         return pos_x,pos_y
     
     @classmethod
@@ -284,8 +291,8 @@ class millenium_simulation(Simulation):
         n_pix = 4096.0
         l_pix = l_field/n_pix
 
-        x_pix = ( (pos_x_rad + 0.5*l_field) / l_pix) - 0.5
-        y_pix = ( (pos_y_rad + 0.5*l_field) / l_pix) - 0.5
+        x_pix = pos_x/l_pix - 0.5
+        y_pix = pos_y/l_pix -0.5
         return int(round(x_pix.value)), int(round(y_pix.value))
 
 
@@ -296,4 +303,7 @@ class millenium_simulation(Simulation):
 
 if __name__ == "__main__":
     ms = millenium_simulation()
-    ms.compute_weights(1, 1, z_s = 1.523, which=['gal', 'oneoverr', 'zoverr'])
+    ms.load_catalogs_by_field(0,0,z_s = 1.523)
+    for reg in ms.get_ciruclar_tile(120*u.arcsec):
+        cat = ms.get_objects_in_region(reg)
+        print(cat)

@@ -233,6 +233,16 @@ class CircularSkyRegion(SkyRegion):
         except:
             logging.error("Unable creat circle of radius {}. Radius should be an astropy quantity".format(radius))
         super().__init__(center, circle)
+    
+    def get_polygon(self, unit=u.degree):
+        if unit == u.degree:
+            return super().get_polygon()
+        else:
+            center_x = self._coord.ra.to(unit).value
+            center_y = self._coord.dec.to(unit).value
+            radius = self._radius.to(unit).value
+            circle = geometry.Point(center_x, center_y).buffer(radius)
+            return circle
 
     @property
     def skycoord(self):

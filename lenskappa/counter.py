@@ -1,3 +1,4 @@
+from abc import abstractmethod, ABC
 from re import M
 import numpy as np
 from shapely import geometry
@@ -10,6 +11,7 @@ import astropy.units as u
 import atexit
 
 
+from lenskappa.dataset import DataSet
 from lenskappa.catalog import Catalog
 from lenskappa.region import Region
 from lenskappa.weighting import weighting
@@ -17,58 +19,49 @@ from lenskappa.surveys.survey import Survey
 from lenskappa.utils.multithreading import MultiThreadObject
 
 
-class Counter:
+class Counter(ABC):
 
-    def __init__(self, field_catalog, survey, region, mask=True, field_mask = None, *args, **kwargs):
-        self._field_catalog = field_catalog
-        self._reference_survey = survey
-        self._field_region = region
+    def __init__(self, comparison_dataset: DataSet, mask=True, *args, **kwargs):
+        self._reference_survey = comparison_dataset
         self._mask = mask
         """
-        Class for running the weighted number counts.
-        Requires three inputs
-        field_catalog: <Catalog> A catalog for the field of interest
-        survey: <Survey> A survey object represeting the control dataset
-        field_region: <Region> A region defining the lens field
-        mask: <bool> Whether or not to apply survey masks to lens field. Default True
-        field_mask: The bright star mask for the lens field. Optional
+        Base class for running the weighted number counts.
+        Requires two inputs
+        comparison_dataset: The dataset being compared to
+        mask: Whether or not to apply masks to this dataster
+        field_mask
         """
-
+    
+    @abstractmethod
     def _validate_all(self, *args, **kwargs):
         """
-        Validates the inputs. Is NOT run on construction.
+        Validate the inputs. Will depend on what kind of weighting
+        is being done
         """
-        self._valid = True
-        if not isinstance(self._field_catalog, Catalog):
-            self._valid = False
-            logging.error("Expected a catalog.Catalog object for the lens catalog")
-        if not isinstance(self._reference_survey, Survey):
-            logging.error("Expected a Survey object for the control field")
-            self._valid = False
+        pass
 
-        if not isinstance(self._field_region, Region):
-            logging.error("Expected a Region object for the lens field region")
-            self._valid = False
+    @abstractmethod
+    def get_weights(self, *args, **kwargs):
+        """
+        Main function to be called by user
+        Should validate the inputs.
+        """
 
-        if os.path.exists(self._output_fname):
-            logging.warning("File {} already exists.".format(self._output_fname))
-            try:
-                overwrite = kwargs['overwrite']
-                if overwrite:
-                    logging.warning("This file will be overwritten")
-                else:
-                    logging.warning("Set overwrite=True to overwrite this file anyway")
-                    exit()
-            except:
-                logging.warning("Set overwrite=True to overwrite this file anyway")
-                exit()
+    @abstractmethod
+    def _get_weight_values(self, *args, **kwargs):
+        """
+        Should be a generator that returns weight values        
+        """
+        pass
 
-        #Remove all objects from the field catalog that fall outside the region
-        self._field_center, self._radius = self._field_region.skycoord
-        self._field_catalog = self._field_catalog.get_objects_in_region(self._field_region)
+    @abstractmethod
+    def _parse_weight_values(self, *args, **kwargs):
+        """
+        Should parse weight values into a pandas row
+        """
+        pass
 
-
-    def add_catalog_filter(self, filter, name, filter_type = 'absolute', which='both'):
+    def add_catalog_filter(self, filter, name, filter_type = 'absolute', catalogs = 'all'):
         """
         Add a filter to the cataog(s)
 
@@ -81,13 +74,9 @@ class Counter:
             which: one of ["field", "control", "both"]
                 Which catalog the filter should be applied to
 
-        """
-        allowed_which = ['control', 'field', 'both']
-        allowed_types = ['absolute', 'periodic']
 
-        if which not in allowed_which:
-            logging.error("Paramter which must be one of {}".format(allowed_which))
-            return
+        """
+        allowed_types = ['absolute', 'periodic']
 
         if filter_type not in allowed_types:
             logging.error("Allowed filter types are {}".format(allowed_types))
@@ -107,11 +96,11 @@ class Counter:
                 self._periodic_filters = {}
                 filters = self._periodic_filters
 
-        filters.update({name: {'filter': filter, 'which': which}})
+        filters.update({name: {'filter': filter, 'which': catalogs}})
 
 
 
-    def apply_absolute_filters(self, catalog, cattype, *args, **kwargs):
+    def apply_absolute_filters(self, catalog, catname, *args, **kwargs):
         """
         Absolute filters are filters that are applied to the catalog(s) at the beginning of the run.
         Any changes the filter makes to the catalog will stay with the catalog throughout the run.
@@ -125,7 +114,7 @@ class Counter:
 
         for name, filter in filters.items():
             try:
-                if filter['which'] == 'both' or filter['which'] == cattype:
+                if filter['which'] == 'all' or catname in filter['which']:
                     catalog = self.apply_filter(catalog, filter)
                     return catalog
 
@@ -135,7 +124,7 @@ class Counter:
             except:
                 logging.error("Unable to apply filter {}".format(name))
 
-    def apply_periodic_filters(self, catalog, cattype, *args, **kwargs):
+    def apply_periodic_filters(self, catalog, catname, *args, **kwargs):
         """
         Periodic filters are applied to the catalog(s) generated by each sample before
         they are passed to the weighting code.
@@ -152,7 +141,7 @@ class Counter:
 
         for name, filter in filters.items():
             try:
-                if filter['which'] == 'both' or filter['which'] == cattype:
+                if filter['which'] == 'all' or catname in filter['which']:
                     catalog = self.apply_filter(catalog, filter)
                     return catalog
 
@@ -172,96 +161,11 @@ class Counter:
         return output_catalog
 
 
-
-    def get_weight_ratios(self, weights, num_samples = 100, output_file = "output.csv", threads = 1, *args, **kwargs):
-        """
-        get the weighted count ratios.
-
-        Paramters:
-            weights: [<str>] list of names of weights, as defined in weighting.weightfns, use 'all' for all weights
-            num_samples: Number of control apertures to generate
-            threads: Number of threads to run
-        """
-        if threads > 1:
-            MultiThreadObject.set_num_threads(threads)
-        self._output_fname = output_file
-        self._validate_all(*args, **kwargs)
-        if not self._valid:
-            exit()
-
-        self._field_catalog = self.apply_absolute_filters(self._field_catalog, 'field')
-        self._field_catalog.get_distances(self._field_region.skycoord[0], unit=u.arcsec)
-
-        #Since the survey is not a Catalog object, it has a handler for filters.
-        self._reference_survey.handle_catalog_filter(self.apply_absolute_filters, cattype='control')
-
-        #Load the weights
-        if weights == 'all':
-            self._weightfns = weighting.load_all_weights()
-        elif type(weights) == list:
-            self._weightfns = weighting.load_some_weights(weights)
-
-        #Initialize the dataframe for storage
-        weight_data = pd.DataFrame(columns=list(self._weightfns.keys()))
-
-        #If no weights were loaded, terminate
-        if self._weightfns is None:
-            return
-
-        #Handle multithreaded runs
-        if threads > 1:
-            self._delegate_weight_values(num_samples, threads)
-
-        #If only using one thread, just run the weighting
-        else:
-            print("Starting weighting...")
-            for index, row in enumerate(self._get_weight_values(num_samples)):
-                weight_data = weight_data.append(row, ignore_index=True)
-                if index and index % (num_samples/10) == 0:
-                    print("Completed {} out of {} samples".format(index, num_samples))
-                    self._write_output(weight_data)
-
-            self._write_output(weight_data)
-
-    def _get_weight_values(self, num_samples, *args, **kwargs):
-        """
-        Generator that yields the weights
-        """
-        loop_i = 0
-        skipped = 0
-        while loop_i < num_samples:
-
-            tile = self._reference_survey.generate_circular_tile(self._radius, *args, **kwargs)
-            control_catalog = self._reference_survey.get_objects(tile, masked=self._mask, get_distance=True, dist_units = u.arcsec)
-
-            if len(control_catalog) == 0:
-                #Sometimes the returned catalog will be empty, in which case
-                #we reject the sample
-                skipped += 1
-                logging.warning("Found no objets for tile centered at {}".format(tile.skycoord[0]))
-                logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped, loop_i+skipped+1))
-                continue
-
-            if self._mask:
-                #Mask
-                field_catalog = self._reference_survey.mask_external_catalog(self._field_catalog, self._field_region, tile)
-
-            else:
-
-                field_catalog = self._field_catalog
-
-            control_catalog = self.apply_periodic_filters(control_catalog, 'control')
-            field_catalog = self.apply_periodic_filters(field_catalog, 'field')
-            field_weights = {key: weight.compute_weight(field_catalog) for key, weight in self._weightfns.items()}
-            control_weights = {key: weight.compute_weight(control_catalog) for key, weight in self._weightfns.items()}
-
-            row = self._parse_weight_values(field_weights, control_weights)
-            loop_i += 1
-            yield row
-
     def _delegate_weight_values(self, num_samples, threads, *args, **kwargs):
         """
         Delegates the weighting to multiple threads.
+        Details of actual weighting are handled by individual
+        subclasses 
         """
 
         if threads <= 2:
@@ -353,6 +257,136 @@ class Counter:
 
 
 
+
+
+class RatioCounter(Counter):
+
+    def __init__(self, field_catalog, comparison_dataset, region: Region, mask=True, field_mask = None, *args, **kwargs):
+        self._field_catalog = field_catalog
+        self._field_mask = field_mask
+        self._field_region = region
+        super().__init__(comparison_dataset, mask, *args, **kwargs)
+
+
+    def _validate_all(self, *args, **kwargs):
+        """
+        Validates the inputs. Is NOT run on construction.
+        """
+        self._valid = True
+        if not isinstance(self._field_catalog, Catalog):
+            self._valid = False
+            logging.error("Expected a catalog.Catalog object for the lens catalog")
+        if not isinstance(self._reference_survey, Survey):
+            logging.error("Expected a Survey object for the control field")
+            self._valid = False
+
+        if not isinstance(self._field_region, Region):
+            logging.error("Expected a Region object for the lens field region")
+            self._valid = False
+
+        if os.path.exists(self._output_fname):
+            logging.warning("File {} already exists.".format(self._output_fname))
+            try:
+                overwrite = kwargs['overwrite']
+                if overwrite:
+                    logging.warning("This file will be overwritten")
+                else:
+                    logging.warning("Set overwrite=True to overwrite this file anyway")
+                    exit()
+            except:
+                logging.warning("Set overwrite=True to overwrite this file anyway")
+                exit()
+
+        #Remove all objects from the field catalog that fall outside the region
+        self._field_center, self._radius = self._field_region.skycoord
+        self._field_catalog = self._field_catalog.get_objects_in_region(self._field_region)
+
+    def get_weights(self, weights, num_samples = 100, output_file = "output.csv", threads = 1, *args, **kwargs):
+        """
+        get the weighted count ratios.
+
+        Paramters:
+            weights: [<str>] list of names of weights, as defined in weighting.weightfns, use 'all' for all weights
+            num_samples: Number of control apertures to generate
+            threads: Number of threads to run
+        """
+        if threads > 1:
+            MultiThreadObject.set_num_threads(threads)
+        self._output_fname = output_file
+        self._validate_all(*args, **kwargs)
+        if not self._valid:
+            exit()
+
+        self._field_catalog = self.apply_absolute_filters(self._field_catalog, 'field')
+        self._field_catalog.get_distances(self._field_region.skycoord[0], unit=u.arcsec)
+
+        #Since the survey is not a Catalog object, it has a handler for filters.
+        self._reference_survey.handle_catalog_filter(self.apply_absolute_filters, cattype='control')
+
+        #Load the weights
+        if weights == 'all':
+            self._weightfns = weighting.load_all_weights()
+        elif type(weights) == list:
+            self._weightfns = weighting.load_some_weights(weights)
+
+        #Initialize the dataframe for storage
+        weight_data = pd.DataFrame(columns=list(self._weightfns.keys()))
+
+        #If no weights were loaded, terminate
+        if self._weightfns is None:
+            return
+
+        #Handle multithreaded runs
+        if threads > 1:
+            self._delegate_weight_values(num_samples, threads)
+
+        #If only using one thread, just run the weighting
+        else:
+            print("Starting weighting...")
+            for index, row in enumerate(self._get_weight_values(num_samples)):
+                weight_data = weight_data.append(row, ignore_index=True)
+                if index and index % (num_samples/10) == 0:
+                    print("Completed {} out of {} samples".format(index, num_samples))
+                    self._write_output(weight_data)
+
+            self._write_output(weight_data)
+
+    def _get_weight_values(self, num_samples, *args, **kwargs):
+        """
+        Generator that yields the weights
+        """
+        loop_i = 0
+        skipped = 0
+        while loop_i < num_samples:
+
+            tile = self._reference_survey.generate_circular_tile(self._radius, *args, **kwargs)
+            control_catalog = self._reference_survey.get_objects(tile, masked=self._mask, get_distance=True, dist_units = u.arcsec)
+
+            if len(control_catalog) == 0:
+                #Sometimes the returned catalog will be empty, in which case
+                #we reject the sample
+                skipped += 1
+                logging.warning("Found no objets for tile centered at {}".format(tile.skycoord[0]))
+                logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped, loop_i+skipped+1))
+                continue
+
+            if self._mask:
+                #Mask
+                field_catalog = self._reference_survey.mask_external_catalog(self._field_catalog, self._field_region, tile)
+
+            else:
+
+                field_catalog = self._field_catalog
+
+            control_catalog = self.apply_periodic_filters(control_catalog, 'control')
+            field_catalog = self.apply_periodic_filters(field_catalog, 'field')
+            field_weights = {key: weight.compute_weight(field_catalog) for key, weight in self._weightfns.items()}
+            control_weights = {key: weight.compute_weight(control_catalog) for key, weight in self._weightfns.items()}
+
+            row = self._parse_weight_values(field_weights, control_weights)
+            loop_i += 1
+            yield row
+
     def _parse_weight_values(self, field_weights, control_weights):
 
         """
@@ -394,3 +428,82 @@ class Counter:
                 return_weights.update({weight_name: ratio})
 
         return pd.Series(return_weights)
+    
+
+
+class SingleCounter(Counter):
+
+    def __init__(self, dataset: DataSet, mask = False, *args, **kwargs):
+        """
+        This counter does not compute ratios, it just gets the values of the weights
+        for the control dataset passed.
+        """
+        super().__init__(dataset, mask, *args, **kwargs)
+    
+    def _validate_all(self, *args, **kwargs):
+        if os.path.exists(self._output_fname):
+            logging.warning("File {} already exists.".format(self._output_fname))
+            try:
+                overwrite = kwargs['overwrite']
+                if overwrite:
+                    logging.warning("This file will be overwritten")
+                else:
+                    logging.warning("Set overwrite=True to overwrite this file anyway")
+                    exit()
+            except:
+                logging.warning("Set overwrite=True to overwrite this file anyway")
+                exit()
+        if not isinstance(self._reference_survey, DataSet):
+            logging.error("Reference surve is not a DataSet! Exiting...")
+            exit()
+
+
+    def get_weights(self, weights = 'all', aperture = 120*u.arcsec, sample_type='grid', output_file = "output.csv", threads = 1, *args, **kwargs):
+        self._output_fname = output_file
+        self._validate_all(*args, **kwargs)
+        if weights == 'all':
+            weight_fns = weighting.load_all_weights()
+        elif type(weights) is list:
+            weight_fns = weighting.load_some_weights(weights)
+
+        if sample_type == 'grid':
+            self._get_weights_on_grid(aperture, weight_fns, output_file)
+        
+    def _get_weights_on_grid(self,aperture, weights, output_file, *args, **kwargs):
+        df = pd.DataFrame(columns=weights.keys())
+        for index, reg in enumerate(self._reference_survey.get_ciruclar_tile(aperture)):
+            cat = self._reference_survey.get_objects_in_region(reg)
+            row = {}
+            for name, weightfn in weights.items():
+                weight_vals = weightfn.compute_weight(cat)
+                row.update({name: weight_vals})
+
+
+            row = self._parse_weight_values(row)
+            df = df.append(row, ignore_index=True)
+            if index % 100 == 0:
+                print("Completed {}".format(index))
+                df.to_csv(output_file)
+
+
+
+    def _get_weight_values(self, *args, **kwargs):
+        pass
+
+    def _parse_weight_values(self, row, *args, **kwargs):
+        ret_val = {}
+        for name, val in row.items():
+            try:
+                w_val = np.sum(val)
+                ret_val.update({name: w_val})
+            except:
+                ret_val.update({name: val})
+        
+        return ret_val
+
+if __name__ == '__main__':
+    from lenskappa.surveys.ms.ms import millenium_simulation
+    mils = millenium_simulation()
+    mils.load_catalogs_by_field(0,0,z_s = 1.523)
+    ct = SingleCounter(mils, False)
+    ct.get_weights(weights = ['gal', 'oneoverr', 'zoverr'], output_file = "/Users/patrick/Documents/Current/Research/LensEnv/ms/ms_00.csv")

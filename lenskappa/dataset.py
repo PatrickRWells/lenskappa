@@ -26,6 +26,7 @@ class SkyDataSet(DataSet):
         """
         Class for datasets on the sky (or datasets that can be projected onto the sky)
         Should not be directly instantiated.
+        Can be counted
         """
 
     def _validate(self, *args, **kwargs):
@@ -48,3 +49,5 @@ class SkyDataSet(DataSet):
             return
 
         self._validated = True
+
+

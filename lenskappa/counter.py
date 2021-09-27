@@ -473,6 +473,7 @@ class SingleCounter(Counter):
         df = pd.DataFrame(columns=weights.keys())
         for index, reg in enumerate(self._reference_survey.get_ciruclar_tile(aperture)):
             cat = self._reference_survey.get_objects_in_region(reg)
+            cat = self.apply_periodic_filters(cat, "reference")
             row = {}
             for name, weightfn in weights.items():
                 weight_vals = weightfn.compute_weight(cat)

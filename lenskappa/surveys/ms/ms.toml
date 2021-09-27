@@ -1,0 +1,11 @@
+[data_config.meta.slice]
+choices = ["36","37","38","39","40", "global"]
+help = "Which redshift slice does this correspond to?"
+nargs = 1
+required = false
+
+[data_config.meta.datatype]
+choices = ["catalogs", "kappa_maps"]
+help = "What kind of data you are adding"
+nargs = 1
+required = true

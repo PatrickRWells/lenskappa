@@ -86,7 +86,7 @@ class Catalog(ABC):
             return cls(cat, *args, **kwargs)
         except:
             logging.error("Pandas could not read file {}".format(file))
-            return None
+            raise
 
     @classmethod
     def from_dataframe(cls, cat, *args, **kwargs):

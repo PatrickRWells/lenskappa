@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 
 from lenskappa.region import CircularSkyRegion, SkyRegion
 from lenskappa.utils.decorators import require_points, require_validation
+from lenskappa.params import CatalogParam
 
 
 class Catalog(ABC):
@@ -36,6 +37,8 @@ class Catalog(ABC):
             return self._parmap[key].get_values(self._cat)
         elif key in self._inverse_map.keys():
             return self._parmap[self._inverse_map[key]].get_values(self._cat)
+        elif key in self._base_parmap.keys():
+            return self[self._base_parmap[key]]
         else:
             return self._cat[key]
 
@@ -64,7 +67,7 @@ class Catalog(ABC):
         if column in self._cat.columns:
             return column
         try:
-            return self._parmap[column]
+            return self._parmap[column].col
         except:
             logging.warning("Unable to find column {}".format(column))
             raise
@@ -158,7 +161,15 @@ class Catalog(ABC):
                 single_par = self._parmap[par]
             except:
                 base_par = self._base_parmap[par]
-                single_par = self._parmap[base_par]
+                if base_par not in self._parmap.keys():
+                    try:
+                        col = self._cat[base_par]
+                        single_par = CatalogParam(base_par, base_par)
+                    except:
+                        logging.error("Unable to find column {} needed for this catalog type!".format(single_par))
+                        raise
+                else:
+                    single_par = self._parmap[base_par]
 
             try:
                 col = single_par.get_values(self._cat)
@@ -177,10 +188,15 @@ class Catalog(ABC):
             self._inverse_map = {p.col: p.standard for p in self._parmap.values()}
 
 
+
     def add_param(self, par):
         name = par.standard
         if name not in self._parmap.keys():
             self._parmap.update({name: par})
+
+    def add_params(self, pars):
+        for par in pars:
+            self.add_param(par)
 
     @abstractmethod
     def add_subregion(self, *args, **kwargs):
@@ -202,7 +218,7 @@ class Catalog2D(Catalog):
         self._unions = {}
 
 
-    def get_points(self):
+    def get_points(self, *args, **kwargs):
         if not self._points_initialized:
             self._init_points()
         return self._points
@@ -275,10 +291,10 @@ class Catalog2D(Catalog):
         TODO: Stress-test with millions of points
         """
 
-        x = self._cat[self._parmap['x']]
-        y = self._cat[self._parmap['y']]
+        x = self['x'].value
+        y = self['y'].value
         #This line takes quite a while for large catalogs
-        point_objs = [geometry.Point(xy) for xy in list(zip(x,y))]
+        point_objs = [geometry.Point(*xy) for xy in list(zip(x,y))]
         self._points = pd.Series(point_objs)
         self._points_initialized = True
 
@@ -322,19 +338,32 @@ class SkyCatalog2D(Catalog2D):
         #this is very slow. Need to work out a different solution
         super()._init_points()
 
-    def get_coords(self):
+    def get_skypoints(self):
+
         try:
-            return self._points
+            return self._skypoints
         except:
-            self._points = SkyCoord(self['ra'], self['dec'])
-            self._points_initialized = True
+            self._skypoints = SkyCoord(self['ra'], self['dec'])
+            self._skypoints_initialized = True
+            return self._skypoints
+    
+    def _get_points(self):
+        try:
+            p = self._points
+            return p
+        except AttributeError:
+            self._init_points()
+            self._points_initialized
             return self._points
 
-    def get_points(self,):
-        return self.get_coords()
+    def get_points(self, point_type='shapely'):
+        if point_type == 'shapely':
+            return self._get_points()
+        else:
+            return self._skypoints()
 
     def get_distances(self, center: SkyCoord, unit=u.arcsec, *args, **kwargs):
-        coords = self.get_coords()
+        coords = self.get_skypoints()
         distances = center.separation(coords).to(unit).value
         self._cat['distance'] = distances
         dist_par = QuantCatalogParam('distance', 'r', unit)
@@ -360,14 +389,14 @@ class SkyCatalog2D(Catalog2D):
         if len(self) > 30000:
             logging.error("Tried to rotate this catalog, but its too big!")
             return
-        coords = self.get_coords()
+        coords = self.get_skypoints()
         separations = original.separation(coords)
         pas = original.position_angle(coords)
         new_coords = new.directional_offset_by(pas, separations)
 
         new_df = self._cat.copy()
-        new_df[self._parmap['x']] = new_coords.ra.degree
-        new_df[self._parmap['y']] = new_coords.dec.degree
+        new_df[self._parmap['ra']] = new_coords.ra.degree
+        new_df[self._parmap['dec']] = new_coords.dec.degree
         new_catalog = self.from_dataframe(new_df, parmap=self._parmap)
         new_catalog._skypoints = new_coords
         return new_catalog

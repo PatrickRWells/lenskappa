@@ -165,27 +165,20 @@ class millenium_simulation(Simulation):
         return SkyCatalog2D(combined, params=pars)
 
 
-
-    def compute_weights(self, x, y, z_s, aperture = 120*u.arcsec, which='all', *args, **kwargs):
+    def _generate_grid(self, aperture = 120*u.arcsec, overlap = 1, *args, **kwargs):
         """
-        Compute weights for a given field
+        Generates a grid of locations to compute weighted number counts on.
+
+        Params:
+
+        aperture: Size of the aperture to consider. Should be an astropy quantity
+        overlap: If 1, adjacent tiles do not overlap (centers have spacing of
+            2*aperture). If above 1, tile spacing = 2*(aperture/overlap)
+        
+        
         """
-        if which == 'all':
-            weightfns = load_all_weights()
-        else:
-            weightfns = load_some_weights(which)
-
-        weight_frame = pd.DataFrame(columns=weightfns.keys())
-        key = "{}_{}".format(str(x),str(y))
-        catalog = self._catalog_data[key]
-        for i_x in x_grid:
-            for i_y in y_grid:
-                newcat = self._filter_catalog(catalog, center, aperture)
-                weights = {name: np.sum(weight.compute_weight(newcat)) for name, weight in weightfns.items()}
-                print(weights)            
 
 
-    def _generate_grid(self, aperture = 120*u.arcsec, *args, **kwargs):
         #First, find the corners of the tiling region.
         #Since we don't allow tiles to overlap with the edge of the field.
         min_pos = 0.0*u.degree + aperture
@@ -204,6 +197,8 @@ class millenium_simulation(Simulation):
         y_diff = min_pos_y - min_vals
         x_index = bl_corner[0]
         y_index = bl_corner[1]
+
+        #Make sure we're fully within the field
         if x_diff < aperture:
             x_index += 1
         if y_diff < aperture:
@@ -214,6 +209,8 @@ class millenium_simulation(Simulation):
         y_diff = max_vals - max_pos_y
         x_index = tr_corner[0]
         y_index = tr_corner[1]
+
+        #Make sure we're fully within the field.
         if x_diff < aperture:
             x_index -= 1
         if y_diff < aperture:
@@ -228,20 +225,30 @@ class millenium_simulation(Simulation):
         while x_pos < max_pos_x:
             i_x, i_y = millenium_simulation.get_index_from_position(x_pos, min_pos_y)
             x_grid.append(i_x)
-            x_pos += 2*aperture
+            x_pos += 2* (aperture/overlap)
         y_pos = min_pos_y
         y_grid = []
         while y_pos < max_pos_y:
             i_x, i_y = millenium_simulation.get_index_from_position(min_pos_x, y_pos)
             y_grid.append(i_y)
-            y_pos += 2*aperture
+            y_pos += 2*(aperture/overlap)
         
         return x_grid, y_grid
 
     def get_ciruclar_tile(self, aperture, *args, **kwargs):
+        """
+        Generator that returns ciruclar tiles, one at a time.
+        
+        Params:
+
+        Aperture: Size of the tiles
+        
+        """
+
         x_grid, y_grid = self._generate_grid(aperture, *args, **kwargs)
         #Assumption is that the aperture isn't changing during a run
         #maybe should change that
+
         for x_i in x_grid:
             for y_i in y_grid:
                 center = millenium_simulation.get_position_from_index(x_i, y_i)

@@ -82,7 +82,15 @@ class HSCSurvey(Survey):
 	        time.sleep(1)
         while not self._starmasks.is_ready(*args, **kwargs):
 	        time.sleep(1)
-        
+    
+    def add_param(self, param):
+        """
+        Adds a parameter to the underlying catalogs
+        """
+        self._catalog.add_param(param)
+
+    def add_params(self, params):
+        self._catalog.add_params(params)
 
     def get_objects(self, region, masked=True, get_dist = True, *args, **kwargs):
         """
@@ -170,7 +178,6 @@ class HSCSurvey(Survey):
         self._cached_catalogs = {}
         if file:
             print("Reading in catalog for HSC field {}. This may take a while".format(self._field))
-
             catalog = pd.read_csv(file)
             self._catalog = hsc_catalog(catalog, *args, **kwargs)
             print("Done reading in catalog.")
@@ -202,7 +209,7 @@ class HSCSurvey(Survey):
             patch_files = [os.path.join(path, file) for file in os.listdir(path) if file.endswith(band + '.reg')]
             f = self._exec.submit(self._read_patch_maskfiles, patch_files, tract)
             starmasks.update({tract: f})
-
+        
         self._starmasks = hsc_mask(starmasks, futures=True)
 
 

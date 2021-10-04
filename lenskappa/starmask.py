@@ -130,7 +130,7 @@ class RegStarMask(StarMask):
         and False indicates the object does not.
         
         """
-        cat_points = catalog.get_points()
+        cat_points = catalog.get_points(point_type="shapely")
         masks_in_region = [reg for reg in self._shapely_regdata if region.intersects(reg)]
         mask = np.array([False]*len(catalog))
         for index, point in enumerate(cat_points):
@@ -138,7 +138,7 @@ class RegStarMask(StarMask):
             if not mask[index]:
                 #If they have not already been found to fall behind a mask
                 for submask in masks_in_region:
-                    #Check to see if they fall behind any of the masks
+                    #Check to see if they fall behind any of the masks                        
                     if submask.contains(point):
                         mask[index] = True
                         break

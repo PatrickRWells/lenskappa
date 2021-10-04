@@ -2,7 +2,7 @@ from abc import abstractmethod, ABC
 from re import M
 import numpy as np
 from shapely import geometry
-import multiprocessing as mp
+import multiprocess as mp
 import os
 import pandas as pd
 import math
@@ -197,7 +197,6 @@ class Counter(ABC):
         print("Starting weighting...")
 
         self._listen(num_samples)
-
     def _listen(self, num_samples):
         """
         Collects results from worker threads and periodically writes them to output
@@ -230,7 +229,6 @@ class Counter(ABC):
         Worker function suitable for use in multithreaded runs.
         Expects a queue to communicate with the supervisor thread.
         """
-
         weight_data = pd.DataFrame(columns=list(self._weightfns.keys()))
         for index, row in enumerate(self._get_weight_values(num_samples, thread_num = thread_num, globals=globals, *args, **kwargs)):
             weight_data = weight_data.append(row, ignore_index=True)
@@ -267,6 +265,14 @@ class RatioCounter(Counter):
         self._field_region = region
         super().__init__(comparison_dataset, mask, *args, **kwargs)
 
+    def __getstate__(self):
+        # Added because python 3.8 has some weird issues passing objects to 
+        # Subprocesses that already have subprocesses in them
+        state = self.__dict__.copy()
+        if '_processes' in state.keys():
+            state['_processes'] = None
+            state['_queues'] = None
+        return state
 
     def _validate_all(self, *args, **kwargs):
         """
@@ -321,7 +327,7 @@ class RatioCounter(Counter):
         self._field_catalog.get_distances(self._field_region.skycoord[0], unit=u.arcsec)
 
         #Since the survey is not a Catalog object, it has a handler for filters.
-        self._reference_survey.handle_catalog_filter(self.apply_absolute_filters, cattype='control')
+        self._reference_survey.handle_catalog_filter(self.apply_absolute_filters, catname='control')
 
         #Load the weights
         if weights == 'all':
@@ -377,12 +383,10 @@ class RatioCounter(Counter):
             else:
 
                 field_catalog = self._field_catalog
-
             control_catalog = self.apply_periodic_filters(control_catalog, 'control')
             field_catalog = self.apply_periodic_filters(field_catalog, 'field')
             field_weights = {key: weight.compute_weight(field_catalog) for key, weight in self._weightfns.items()}
             control_weights = {key: weight.compute_weight(control_catalog) for key, weight in self._weightfns.items()}
-
             row = self._parse_weight_values(field_weights, control_weights)
             loop_i += 1
             yield row
@@ -413,9 +417,8 @@ class RatioCounter(Counter):
                 continue
             except:
                 pass
-
-            if type(weight_values) == pd.Series:
-
+            
+            try:
                 field_weight = np.sum(weight_values)
                 control_weight = np.sum(control_weights[weight_name])
                 try:
@@ -426,6 +429,8 @@ class RatioCounter(Counter):
 
 
                 return_weights.update({weight_name: ratio})
+            except:
+                logging.error("Unable to parse weight values of type {}".format(weight_name))
 
         return pd.Series(return_weights)
     
@@ -458,7 +463,7 @@ class SingleCounter(Counter):
             exit()
 
 
-    def get_weights(self, weights = 'all', aperture = 120*u.arcsec, sample_type='grid', output_file = "output.csv", threads = 1, *args, **kwargs):
+    def get_weights(self, weights = 'all', aperture = 120*u.arcsec, sample_type='grid', output_file = "output.csv", threads = 1, output_positions = False, *args, **kwargs):
         self._output_fname = output_file
         self._validate_all(*args, **kwargs)
         if weights == 'all':
@@ -467,12 +472,17 @@ class SingleCounter(Counter):
             weight_fns = weighting.load_some_weights(weights)
 
         if sample_type == 'grid':
-            self._get_weights_on_grid(aperture, weight_fns, output_file)
+            self._get_weights_on_grid(aperture, weight_fns, output_file, output_positions = output_positions)
         
-    def _get_weights_on_grid(self,aperture, weights, output_file, *args, **kwargs):
+    def _get_weights_on_grid(self,aperture, weights, output_file, output_positions = True, *args, **kwargs):
         df = pd.DataFrame(columns=weights.keys())
+        ra,dec  = [],[]
         for index, reg in enumerate(self._reference_survey.get_ciruclar_tile(aperture)):
             cat = self._reference_survey.get_objects_in_region(reg)
+            if output_positions:
+                ra.append(reg.skycoord[0].ra.deg)
+                dec.append(reg.skycoord[0].dec.deg)
+
             cat = self.apply_periodic_filters(cat, "reference")
             row = {}
             for name, weightfn in weights.items():
@@ -483,6 +493,11 @@ class SingleCounter(Counter):
             row = self._parse_weight_values(row)
             df = df.append(row, ignore_index=True)
             if index % 100 == 0:
+                if output_positions:
+                    output_ra = pd.Series(ra)
+                    output_dec = pd.Series(dec)
+                    df['ra'] = ra
+                    df['dec'] = dec
                 print("Completed {}".format(index))
                 df.to_csv(output_file)
 

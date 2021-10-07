@@ -472,32 +472,32 @@ class SingleCounter(Counter):
             weight_fns = weighting.load_some_weights(weights)
 
         if sample_type == 'grid':
+            print("Starting weighting...")
+
             self._get_weights_on_grid(aperture, weight_fns, output_file, output_positions = output_positions)
         
-    def _get_weights_on_grid(self,aperture, weights, output_file, output_positions = True, *args, **kwargs):
+    def _get_weights_on_grid(self,aperture, weights, output_file, output_positions = False, *args, **kwargs):
+        columns = list(weights.keys())
+        if output_positions:
+            columns.insert(0, "ra")
+            columns.insert(1, "dec")
         df = pd.DataFrame(columns=weights.keys())
-        ra,dec  = [],[]
         for index, reg in enumerate(self._reference_survey.get_ciruclar_tile(aperture)):
             cat = self._reference_survey.get_objects_in_region(reg)
-            if output_positions:
-                ra.append(reg.skycoord[0].ra.deg)
-                dec.append(reg.skycoord[0].dec.deg)
-
             cat = self.apply_periodic_filters(cat, "reference")
-            row = {}
+            row = {col: "" for col in columns}
             for name, weightfn in weights.items():
                 weight_vals = weightfn.compute_weight(cat)
-                row.update({name: weight_vals})
+                row[name] = weight_vals
+            if output_positions:
+                pos = reg.skycoord[0]
+                row['ra'] = pos.ra.deg
+                row['dec'] = pos.dec.deg
 
 
             row = self._parse_weight_values(row)
             df = df.append(row, ignore_index=True)
             if index % 100 == 0:
-                if output_positions:
-                    output_ra = pd.Series(ra)
-                    output_dec = pd.Series(dec)
-                    df['ra'] = ra
-                    df['dec'] = dec
                 print("Completed {}".format(index))
                 df.to_csv(output_file)
 
@@ -522,4 +522,4 @@ if __name__ == '__main__':
     mils = millenium_simulation()
     mils.load_catalogs_by_field(0,0,z_s = 1.523)
     ct = SingleCounter(mils, False)
-    ct.get_weights(weights = ['gal', 'oneoverr', 'zoverr'], output_file = "/Users/patrick/Documents/Current/Research/LensEnv/ms/ms_00.csv")
+    ct.get_weights(weights = ['gal', 'oneoverr', 'zoverr'], output_file = "/Users/patrick/Documents/Current/Research/LensEnv/ms/ms_00.csv", output_positions=True)

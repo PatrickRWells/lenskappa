@@ -482,7 +482,7 @@ class SingleCounter(Counter):
             columns.insert(0, "ra")
             columns.insert(1, "dec")
         df = pd.DataFrame(columns=weights.keys())
-        for index, reg in enumerate(self._reference_survey.get_ciruclar_tile(aperture)):
+        for index, reg in enumerate(self._reference_survey.get_ciruclar_tile(aperture, *args, **kwargs)):
             cat = self._reference_survey.get_objects_in_region(reg)
             cat = self.apply_periodic_filters(cat, "reference")
             row = {col: "" for col in columns}

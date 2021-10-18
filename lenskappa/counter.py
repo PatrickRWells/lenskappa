@@ -474,7 +474,7 @@ class SingleCounter(Counter):
         if sample_type == 'grid':
             print("Starting weighting...")
 
-            self._get_weights_on_grid(aperture, weight_fns, output_file, output_positions = output_positions)
+            self._get_weights_on_grid(aperture, weight_fns, output_file, output_positions = output_positions, *args, **kwargs)
         
     def _get_weights_on_grid(self,aperture, weights, output_file, output_positions = False, *args, **kwargs):
         columns = list(weights.keys())

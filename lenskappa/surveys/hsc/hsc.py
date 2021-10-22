@@ -29,7 +29,6 @@ class HSCSurvey(Survey):
         #setup is called automatically by the superclass constructor
 
     def setup(self, *args, **kwargs):
-
         self._load_tract_data(*args, **kwargs)
         self._load_starmasks(*args, **kwargs)
         self._load_catalog_data(*args, **kwargs)
@@ -433,7 +432,4 @@ class hsc_mask(StarMaskCollection):
         catalog = external_catalog.rotate(external_center, internal_center)
         masked_catalog = self.mask_catalog(catalog, internal_region, patches)
         return masked_catalog
-
-if __name__ == "__main__":
-
-    survey = HSCSurvey("W02")
+        

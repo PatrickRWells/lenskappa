@@ -1,3 +1,4 @@
+from numpy.core.numeric import full
 import pandas as pd
 import os
 import re
@@ -67,11 +68,16 @@ class Kappa:
         bin_width = bin_size
 
         center = median_n_gals*obs_center
+
         bins = [(center - full_width/2 + i*bin_width) for i in range(int(full_width/bin_width) + 1)]
+
         vals = {}
-        for i in bins:
+        bin_counts = np.zeros(len(bins))
+        for ix, i in enumerate(bins):
             mask = (scaled_weight_vals >= i) & (scaled_weight_vals < i+bin_width)
+            bin_counts[ix] = len(normalized_ms_weights[mask])
             vals.update({i: {'mask': mask, 'distance': (i-center)/center}})
+            bin_counts[ix] = len(normalized_ms_weights[mask])
         return vals
 
     def get_bins(self, normalized_ms_weights, obs_centers, obs_widths, cwidth = 2, bin_size = 1, *args, **kwargs):
@@ -94,6 +100,7 @@ class Kappa:
         for name, center in obs_centers.items():
             fields = self.select_fields_by_weights(normalized_ms_weights, name, center, obs_widths[name], cwidth, bin_size)
             bins.update({name: fields})
+        print(bins)
         return bins
 
     def get_bin_combos(self, bins, cwidth=4, bin_size=1, *args, **kwargs):
@@ -117,14 +124,14 @@ class Kappa:
         combs = list(itertools.product(*bin_keys))
         keys = list(bins.keys())
         output = {}
-        print("Getting bin combinations!")
-        for index, c in enumerate(combs):
+        combo_counts = np.zeros(len(combs))
+        for index_1, c in enumerate(combs):
             distances = np.zeros(len(keys))
             master_mask = np.ones(len(self._weights), dtype=bool)
-            for index, val in enumerate(c):
-                mask = bins[keys[index]][val]['mask']
+            for index_2, val in enumerate(c):
+                mask = bins[keys[index_2]][val]['mask']
                 master_mask = master_mask&mask
-                distances[index] = bins[keys[index]][val]['distance']
+                distances[index_2] = bins[keys[index_2]][val]['distance']
             output.update({c: {'mask': master_mask, 'distances': distances}})
         return output
 

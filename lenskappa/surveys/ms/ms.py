@@ -203,6 +203,7 @@ class millenium_simulation(Simulation):
             2*aperture). If above 1, tile spacing = 2*(aperture/overlap).
         """
 
+
         #First, find the corners of the tiling region.
         #Since we don't allow tiles to overlap with the edge of the field.
         min_pos = 0.0*u.degree + aperture
@@ -216,7 +217,8 @@ class millenium_simulation(Simulation):
 
         min_vals = 0.0*u.degree
         max_vals = 4.0*u.degree
-        
+        pix_distance = 4.0*u.deg/4096.0
+
         x_diff = min_pos_x - min_vals
         y_diff = min_pos_y - min_vals
         x_index = bl_corner[0]
@@ -249,13 +251,19 @@ class millenium_simulation(Simulation):
         while x_pos < max_pos_x:
             i_x, i_y = millenium_simulation.get_index_from_position(x_pos, min_pos_y)
             x_grid.append(i_x)
-            x_pos += 2* (aperture/overlap)
+            if overlap == 'all':
+                x_pos += pix_distance
+            else:
+                x_pos += 2* (aperture/overlap)
         y_pos = min_pos_y
         y_grid = []
         while y_pos < max_pos_y:
             i_x, i_y = millenium_simulation.get_index_from_position(min_pos_x, y_pos)
             y_grid.append(i_y)
-            y_pos += 2*(aperture/overlap)
+            if overlap == 'all':
+                y_pos += pix_distance
+            else:
+                y_pos += 2* (aperture/overlap)
         
         return x_grid, y_grid
 

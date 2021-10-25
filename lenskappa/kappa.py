@@ -34,8 +34,8 @@ class Kappa:
                 df = pd.read_csv(path)
                 df['field']=field
                 dfs.append(df)
-        
         self._weights = pd.concat(dfs, ignore_index=True)
+        self._weights.drop(columns=['Unnamed: 0'], inplace=True)
 
     def select_fields_by_weights(self, normalized_ms_weights, weight='gal', obs_center = 1.0, obs_width = 0.05, cwidth=2, bin_size=1):
         """
@@ -63,7 +63,6 @@ class Kappa:
         #This is a methods thing. We compare weight vals by first normalizing by the median
         #Then multiplying by the median number of galaxies in a MS field. 
         #A bin width of 1 corresponds to increasing/decrease this median_n_gals by 1
-
         full_width = obs_width*median_n_gals*cwidth
         bin_width = bin_size
 
@@ -78,6 +77,7 @@ class Kappa:
             bin_counts[ix] = len(normalized_ms_weights[mask])
             vals.update({i: {'mask': mask, 'distance': (i-center)/center}})
             bin_counts[ix] = len(normalized_ms_weights[mask])
+            import matplotlib.pyplot as plt
         return vals
 
     def get_bins(self, normalized_ms_weights, obs_centers, obs_widths, cwidth = 2, bin_size = 1, *args, **kwargs):
@@ -100,7 +100,6 @@ class Kappa:
         for name, center in obs_centers.items():
             fields = self.select_fields_by_weights(normalized_ms_weights, name, center, obs_widths[name], cwidth, bin_size)
             bins.update({name: fields})
-        print(bins)
         return bins
 
     def get_bin_combos(self, bins, cwidth=4, bin_size=1, *args, **kwargs):
@@ -148,7 +147,6 @@ class Kappa:
         except:
             
             self.load_kappa_values(*args, **kwargs)
-        
         outputs = {}
         for field in fields:
             outputs.update({field: self._kappa_values[field]})
@@ -172,7 +170,7 @@ class Kappa:
             for j in range(8):
                 key = basepattern.format(i,j)
                 id = basename.format(key)
-                fname = all_files[np.where(id)[0][0]]
+                fname = all_files[np.where([f.startswith(id) for f in all_files])[0][0]]
                 fpath = os.path.join(directory, fname)
                 with open (fpath, 'rb') as d:
                     data = np.fromfile(d, np.float32)
@@ -218,7 +216,18 @@ class Kappa:
             #PW: this should probably be moved to the get_bin_combos function
             #for clarity.
             gauss_factor *= gauss.pdf(distance)
+        import matplotlib.pyplot as plt
 
+        for val in data.field.unique():
+            running_index = 0
+
+            field_data = data[data.field == val]
+            kappa_data_temp = np.zeros(len(field_data))
+            for index,row in field_data.iterrows():
+                indices = millenium_simulation.get_index_from_position(row.ra*u.deg, row.dec*u.deg)
+                kappa_data_temp[running_index] = kappas[row.field][indices[0],indices[1]]
+                running_index += 1
+    
         running_index = 0
         for index, row in data.iterrows(): #Iterate over the fields being considered
             indices = millenium_simulation.get_index_from_position(row.ra*u.deg, row.dec*u.deg)

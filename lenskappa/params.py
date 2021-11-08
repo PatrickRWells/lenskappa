@@ -66,6 +66,5 @@ class SingleValueParam(CatalogParam):
         super().__init__(name, name)
         self._value = value
 
-
     def get_values(self, *args, **kwargs):
         return self._value

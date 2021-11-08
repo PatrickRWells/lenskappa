@@ -20,6 +20,7 @@ class Catalog(ABC):
         self._needed_parameter_types = partypes
         self._base_parmap = base_parmap
         try:
+    
             new_parmap = kwargs['params']
             self.load_params(new_parmap)
         except:

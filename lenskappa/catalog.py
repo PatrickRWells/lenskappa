@@ -1,3 +1,4 @@
+from lenskappa.params import QuantCatalogParam
 import pandas as pd
 import numpy as np
 import astropy.units as u
@@ -5,11 +6,11 @@ import logging
 
 from astropy.coordinates.sky_coordinate import SkyCoord
 from shapely import geometry
-from copy import deepcopy
 from abc import ABC, abstractmethod
 
 from lenskappa.region import CircularSkyRegion, SkyRegion
 from lenskappa.utils.decorators import require_points, require_validation
+from lenskappa.params import CatalogParam
 
 
 class Catalog(ABC):
@@ -17,11 +18,16 @@ class Catalog(ABC):
     def __init__(self, cat, base_parmap = {}, partypes = {}, *args, **kwargs):
         self._cat = cat
         self._needed_parameter_types = partypes
-        self._parmap = base_parmap
+        self._base_parmap = base_parmap
         try:
-            new_parmap = kwargs['parmap']
+    
+            new_parmap = kwargs['params']
             self.load_params(new_parmap)
         except:
+            try:
+                self._parmap = kwargs['parmap']
+            except:
+                pass
             self._validate_parmap()
 
     def __getitem__(self, key):
@@ -29,7 +35,11 @@ class Catalog(ABC):
         Allows for masking as with a usual dataframe
         """
         if key in self._parmap.keys():
-            return self._cat[self._parmap[key]]
+            return self._parmap[key].get_values(self._cat)
+        elif key in self._inverse_map.keys():
+            return self._parmap[self._inverse_map[key]].get_values(self._cat)
+        elif key in self._base_parmap.keys():
+            return self[self._base_parmap[key]]
         else:
             return self._cat[key]
 
@@ -58,7 +68,7 @@ class Catalog(ABC):
         if column in self._cat.columns:
             return column
         try:
-            return self._parmap[column]
+            return self._parmap[column].col
         except:
             logging.warning("Unable to find column {}".format(column))
             raise
@@ -80,7 +90,7 @@ class Catalog(ABC):
             return cls(cat, *args, **kwargs)
         except:
             logging.error("Pandas could not read file {}".format(file))
-            return None
+            raise
 
     @classmethod
     def from_dataframe(cls, cat, *args, **kwargs):
@@ -88,7 +98,12 @@ class Catalog(ABC):
 
     def apply_boolean_mask(self, mask):
         df = self._cat.loc[self._cat[mask].index]
-        return self.from_dataframe(df, parmap=self._parmap)
+        try:
+            input_points = self._points[mask]
+            return self.from_dataframe(df, parmap=self._parmap, points = input_points)
+        except:
+            return self.from_dataframe(df, parmap=self._parmap)
+
 
     def replace_values_by_mask(self, mask, column, value):
         """
@@ -98,9 +113,11 @@ class Catalog(ABC):
         df = self._cat.copy()
         colname = self.get_colname(column)
         df.loc[~mask, colname] = value
-        return self.from_dataframe(df, parmap=self._parmap)
-
-
+        try:
+            input_points = self._points[mask]
+            return self.from_dataframe(df, parmap=self._parmap, points = input_points)
+        except:
+            return self.from_dataframe(df, parmap=self._parmap)
 
 
     def load_params(self, input_map, *args, **kwargs):
@@ -114,21 +131,20 @@ class Catalog(ABC):
                 is the standard column name and the value is the
                 actual column name.
         """
-
         try:
-            parmap = self._parmap
+            parmap = self._base_parmap
         except:
-            self._parmap = {}
-
-        for par, parmap in self._parmap.items():
-            try:
-                input_parmap = input_map[par]
-                self._parmap.update({par: input_parmap})
-            except:
+            self._base_parmap = {}
+        inputed_pars = [par.standard for par in input_map]
+        for par, parmap in self._base_parmap.items():
+            if parmap in inputed_pars:
+                pass
+            else:
                 logging.warning("No rename found for parameter {}, defaulting to {}".format(par, parmap))
+        self._parmap = {}
+        for par in input_map:
+            self._parmap.update({par.standard: par})
 
-        for par, parmap in input_map.items():
-            self._parmap.update({par: parmap})
         self._validate_parmap()
 
     def _validate_parmap(self):
@@ -142,12 +158,24 @@ class Catalog(ABC):
         """
         self._valid = {}
         for par, partype in self._needed_parameter_types.items():
-
-            single_parmap = self._parmap[par]
             try:
-                col = self._cat[single_parmap]
+                single_par = self._parmap[par]
             except:
-                logging.warning("Unable to find column {} in data".format(single_parmap))
+                base_par = self._base_parmap[par]
+                if base_par not in self._parmap.keys():
+                    try:
+                        col = self._cat[base_par]
+                        single_par = CatalogParam(base_par, base_par)
+                    except:
+                        logging.error("Unable to find column {} needed for this catalog type!".format(single_par))
+                        raise
+                else:
+                    single_par = self._parmap[base_par]
+
+            try:
+                col = single_par.get_values(self._cat)
+            except:
+                logging.warning("Unable to find column {} in data".format(single_par.col))
                 self._valid.update({par: False})
                 continue
 
@@ -155,9 +183,21 @@ class Catalog(ABC):
                 coldata = col.astype(partype)
                 self._valid.update({par : True})
             except:
-                logging.error("Unable to cast column {} as type {}".format(single_parmap, partype))
+                logging.error("Unable to cast column {} as type {}".format(single_par.col, partype))
                 self._valid.update({par : False})
 
+            self._inverse_map = {p.col: p.standard for p in self._parmap.values()}
+
+
+
+    def add_param(self, par):
+        name = par.standard
+        if name not in self._parmap.keys():
+            self._parmap.update({name: par})
+
+    def add_params(self, pars):
+        for par in pars:
+            self.add_param(par)
 
     @abstractmethod
     def add_subregion(self, *args, **kwargs):
@@ -175,12 +215,11 @@ class Catalog2D(Catalog):
     def __init__(self, cat, base_parmap = {}, *args, **kwargs):
         needed_parameter_types = {'x': float, 'y': float}
         super().__init__(cat, base_parmap, partypes=needed_parameter_types, *args, **kwargs)
-        self._points_initialized = False
         self._subregions = {}
         self._unions = {}
 
 
-    def get_points(self):
+    def get_points(self, *args, **kwargs):
         if not self._points_initialized:
             self._init_points()
         return self._points
@@ -219,8 +258,11 @@ class Catalog2D(Catalog):
             mask = self._subregions[name]['mask']
         except:
             mask = self._init_subregion[name]
-
-        return self.from_dataframe(cat=self._cat[mask], parmap=self._parmap)
+        try:
+            input_points = self._points[mask]
+            return self.from_dataframe(cat=self._cat[mask], parmap=self._parmap, points = input_points)
+        except:
+            return self.from_dataframe(cat=self._cat[mask], parmap=self._parmap)
 
     @require_points
     def filter_by_subregions(self, subregions, *args, **kwargs):
@@ -250,10 +292,10 @@ class Catalog2D(Catalog):
         TODO: Stress-test with millions of points
         """
 
-        x = self._cat[self._parmap['x']]
-        y = self._cat[self._parmap['y']]
+        x = self['x'].value
+        y = self['y'].value
         #This line takes quite a while for large catalogs
-        point_objs = [geometry.Point(xy) for xy in list(zip(x,y))]
+        point_objs = [geometry.Point(*xy) for xy in list(zip(x,y))]
         self._points = pd.Series(point_objs)
         self._points_initialized = True
 
@@ -297,17 +339,36 @@ class SkyCatalog2D(Catalog2D):
         #this is very slow. Need to work out a different solution
         super()._init_points()
 
-    def get_coords(self):
+    def get_skypoints(self):
+
         try:
             return self._skypoints
         except:
-            self._skypoints = SkyCoord(self._cat[self._parmap['x']], self._cat[self._parmap['y']], unit="deg")
+            self._skypoints = SkyCoord(self['ra'], self['dec'])
+            self._skypoints_initialized = True
             return self._skypoints
+    
+    def _get_points(self):
+        try:
+            p = self._points
+            return p
+        except AttributeError:
+            self._init_points()
+            self._points_initialized
+            return self._points
+
+    def get_points(self, point_type='shapely'):
+        if point_type == 'shapely':
+            return self._get_points()
+        else:
+            return self._skypoints()
 
     def get_distances(self, center: SkyCoord, unit=u.arcsec, *args, **kwargs):
-        coords = self.get_coords()
-        distances = center.separation(coords).to(unit)
+        coords = self.get_skypoints()
+        distances = center.separation(coords).to(unit).value
         self._cat['distance'] = distances
+        dist_par = QuantCatalogParam('distance', 'r', unit)
+        self._parmap.update({dist_par.standard: dist_par})
 
 
     def add_subregion(self, name, region, *args, **kwargs):
@@ -329,14 +390,14 @@ class SkyCatalog2D(Catalog2D):
         if len(self) > 30000:
             logging.error("Tried to rotate this catalog, but its too big!")
             return
-        coords = self.get_coords()
+        coords = self.get_skypoints()
         separations = original.separation(coords)
         pas = original.position_angle(coords)
         new_coords = new.directional_offset_by(pas, separations)
 
         new_df = self._cat.copy()
-        new_df[self._parmap['x']] = new_coords.ra.degree
-        new_df[self._parmap['y']] = new_coords.dec.degree
+        new_df[self._parmap['ra']] = new_coords.ra.degree
+        new_df[self._parmap['dec']] = new_coords.dec.degree
         new_catalog = self.from_dataframe(new_df, parmap=self._parmap)
         new_catalog._skypoints = new_coords
         return new_catalog
@@ -368,12 +429,8 @@ class SkyCatalog2D(Catalog2D):
     def get_objects_in_region(self, region, *args, **kwargs):
         if type(region) == CircularSkyRegion:
             center, radius = region.skycoord
-
-            coords = self.get_coords()
-            distances = coords.separation(center)
-            self._cat['dist'] = distances
-            mask = (distances <= radius)
-            self._parmap.update({'r': 'dist'})
+            self.get_distances(center)
+            mask = self['r'] <= radius
             item = self.apply_boolean_mask(mask)
             return item
         else:

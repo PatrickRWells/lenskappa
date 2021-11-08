@@ -19,35 +19,34 @@ class SurveyDataManager:
         It could be fun to spin this off into its own library for
         managing datasets on a local machine
         """
-
         self._cmds = ['add', 'remove']
         self._get_survey_config(survey)
-        
+
     def __del__(self):
         pass
-    
+
     def _get_survey_config(self, survey: str):
         """
         Gets the survey config file.
 
         Parameters:
             survey: <str> Name of the survey. It's expected that the
-                    config file will be named survey.toml        
+                    config file will be named survey.toml
         """
-
         self._survey = survey
         base = os.path.dirname(lenskappa.__file__)
         self._basepath = os.path.join(base, 'surveys', survey)
         fname = '.'.join([survey, 'toml'])
         self._survey_config_location = os.path.join(self._basepath, fname)
         try:
+
             survey_config = toml.load(self._survey_config_location)
             self._validate_survey_config(survey_config)
 
         except Exception as e:
             logging.critical("Unable to find config file for suvey {} ".format(survey))
             exit(1) #PW: Using exit here means we should always try to load survey data early
-    
+
     def _validate_survey_config(self, configdata):
         """
         Validate the configuration file for the survey. Make sure it behaves
@@ -60,21 +59,22 @@ class SurveyDataManager:
         except:
             logging.error("No data types were found for survey {}".format(self._survey))
             exit(1)
-        
+
         try:
             metadata = self.data_inputs['meta']
             self._setup_metadata(metadata)
         except:
             logging.info("No metadata types found for this survey")
-        
+
         try:
             support_data = configdata['support_data']
             self._setup_supportdata(support_data)
+
         except Exception as e:
             logging.info("No support data found for this survey")
 
         self._load_data()
-    
+
     def _load_data(self):
         """
         Loads any available data for the survey.
@@ -84,7 +84,6 @@ class SurveyDataManager:
         if not os.path.exists(top_dir):
             logging.CRITICAL("Unable to load data, the main application support path doesn't exist!")
             exit()
-        
         lenskapa_data_dir = appdirs.user_data_dir("lenskappa")
         if not os.path.exists(lenskapa_data_dir):
             os.makedirs(lenskapa_data_dir)
@@ -95,7 +94,6 @@ class SurveyDataManager:
             self._survey_data = {}
         else:
             self._survey_data = toml.load(self._survey_data_path)
-
     def _setup_metadata(self, metadata):
         """
         Save metadata, and setup an argparser that can handle
@@ -115,7 +113,7 @@ class SurveyDataManager:
 
             self.argparser.add_argument(dest=cmd, **cmd_input)
         self.argparser.add_argument(dest="path", nargs=1, help="Path to the datafile")
-    
+
     def _setup_supportdata(self, support_data):
         self._support_data = {}
         refs = {}
@@ -151,7 +149,7 @@ class SurveyDataManager:
         for key in ref_path[:-1]:
             item = item[key]
         item.update({ref_path[-1]: return_val})
-        
+
 
 
     def _write_config(self):
@@ -168,7 +166,7 @@ class SurveyDataManager:
             loc = self._configdata
             for key in keys[:-1]:
                 loc = loc[key]
-            
+
             loc.update({keys[-1]: ref_value})
 
         with open(self._survey_config_location, 'w') as f:
@@ -199,8 +197,9 @@ class SurveyDataManager:
         hash_key = hashlib.md5(key.encode('utf-8')).hexdigest()
         if hash_key in self._survey_data:
             logging.warning("Already have a path to this file. Overwriting...")
-        
+
         self._survey_data.update({hash_key: datapath})
+
         self._write_data()
 
 
@@ -246,14 +245,14 @@ class SurveyDataManager:
             return full_path
         except:
             logging.error("File not found for parameters: {}".format(data))
-    
+
     def get_support_file_location(self, data, *args, **kwargs):
         try:
             support_datatype = data['type']
         except:
             logging.error("No support data type found")
             return
-        
+
         try:
             support_data_id = data['id']
         except:
@@ -302,5 +301,5 @@ class SurveyDataManager:
             except:
                 pass
                 #Handle multi-input arguments
-                
+
         return fn(arg_dict)

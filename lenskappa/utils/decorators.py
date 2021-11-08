@@ -37,6 +37,6 @@ def require_validation(params, *args, **kwargs):
             if np.all(isvalid):
                 return fn(self, *args, **kwargs)
             else:
-                logging.error("Catalog parameter(s) {} are not valid".format([par for index, par in enumerate(pars) if not isvalid[index]]))
+                logging.error("Catalog parameter(s) {} are not valid".format([par for index, par in enumerate(params) if not isvalid[index]]))
         return wrapper
     return outer

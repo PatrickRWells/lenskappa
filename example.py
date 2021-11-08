@@ -2,6 +2,8 @@ from lenskappa import Counter, SkyCatalog2D
 from lenskappa.surveys import hsc
 from lenskappa.region import SkyRegion, CircularSkyRegion
 from lenskappa.filter import MaxValueFilter
+
+
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from shapely import geometry
@@ -15,6 +17,8 @@ import time
 # Such as the redshift of the source (z_s)
 lens_parmap = {'m_gal': 'demp_sm', 'z_gal': 'demp_photoz_best', 'z_s': 1.523}
 field_parmap = {'m_gal': 'demp_sm', 'z_gal': 'demp_photoz_best', 'z_s': 1.523}
+
+m_gal_
 
 #Read in the catalog for your field of interest. Currently, only CSV files are supported
 lens_field = SkyCatalog2D.read_csv("/home/prwells/data/J0924/lens_cat.csv", parmap=lens_parmap)

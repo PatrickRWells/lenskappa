@@ -306,6 +306,19 @@ class RatioCounter(Counter):
         #Remove all objects from the field catalog that fall outside the region
         self._field_center, self._radius = self._field_region.skycoord
         self._field_catalog = self._field_catalog.get_objects_in_region(self._field_region)
+    
+    def _check_optionals(self, *args, **kwargs):
+        """
+        Checks for optional configurations that may have been attached to some of the input objects.
+        Example: Sampling a given catalog value
+        FUTUTRE - This should be replaced with a more robust analysis options class
+        """
+        samples = self._field_catalog.has_samples()
+        if samples:
+            self._field_catalog_samples = samples
+            self._has_catalog_samples = True
+
+
 
     def get_weights(self, weights, num_samples = 100, output_file = "output.csv", threads = 1, *args, **kwargs):
         """
@@ -316,6 +329,8 @@ class RatioCounter(Counter):
             num_samples: Number of control apertures to generate
             threads: Number of threads to run
         """
+        self._check_optionals(*args, **kwargs)
+
         if threads > 1:
             MultiThreadObject.set_num_threads(threads)
         self._output_fname = output_file
@@ -383,8 +398,10 @@ class RatioCounter(Counter):
             else:
 
                 field_catalog = self._field_catalog
+
             control_catalog = self.apply_periodic_filters(control_catalog, 'control')
             field_catalog = self.apply_periodic_filters(field_catalog, 'field')
+
             field_weights = {key: weight.compute_weight(field_catalog) for key, weight in self._weightfns.items()}
             control_weights = {key: weight.compute_weight(control_catalog) for key, weight in self._weightfns.items()}
             row = self._parse_weight_values(field_weights, control_weights)

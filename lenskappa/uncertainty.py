@@ -14,7 +14,7 @@ class Distribution(ABC):
     
     def get_sample(self, *args, **kwargs):
         for sample in self._samples:
-            yield sample
+            yield sample        
 
 
 class GaussianDistribution(Distribution):
@@ -22,6 +22,11 @@ class GaussianDistribution(Distribution):
         super().__init__("gaussian", *args, **kwargs)
         self._centers = centers
         self._widths = widths
+
+    def apply_boolean_mask(self, mask):
+        output =  GaussianDistribution(self._centers, self._widths)
+        output._samples = self._samples[mask]
+        return output
 
     def generate_samples(self, n, *args, **kwargs):
         num_objs = len(self._centers)
@@ -33,3 +38,6 @@ class GaussianDistribution(Distribution):
             scaled_samples[index] = self._widths[index]*samples[index] + center
 
         self._samples = scaled_samples
+    
+
+

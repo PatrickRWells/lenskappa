@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 from lenskappa.region import CircularSkyRegion, SkyRegion
 from lenskappa.utils.decorators import require_points, require_validation
 from lenskappa.params import CatalogParam
+from lenskappa.uncertainty import Distribution
 
 
 class Catalog(ABC):
@@ -30,17 +31,28 @@ class Catalog(ABC):
                 pass
             self._validate_parmap()
 
+        self._handle_extras(self, *args, **kwargs)
+    
+    def _handle_extras(self, *args, **kwargs):
+        if 'samples' in kwargs.keys() and kwargs['samples'] is not None:
+            self._parameter_samples = kwargs['samples']
+
     def __getitem__(self, key):
         """
         Allows for masking as with a usual dataframe
         """
+        
         if key in self._parmap.keys():
-            return self._parmap[key].get_values(self._cat)
+            lookup_key = key
+            return self._parmap[lookup_key].get_values(self._cat)
         elif key in self._inverse_map.keys():
-            return self._parmap[self._inverse_map[key]].get_values(self._cat)
+            lookup_key = self._inverse_map[key]
+            return self._parmap[lookup_key].get_values(self._cat)
         elif key in self._base_parmap.keys():
+            lookup_key = self._base_parmap[key]
             return self[self._base_parmap[key]]
         else:
+            lookup_key = key
             return self._cat[key]
 
     def __setitem__(self, key, data):
@@ -96,13 +108,14 @@ class Catalog(ABC):
     def from_dataframe(cls, cat, *args, **kwargs):
         return cls(cat, *args, **kwargs)
 
-    def apply_boolean_mask(self, mask):
+    def apply_boolean_mask(self, mask, *args, **kwargs):
         df = self._cat.loc[self._cat[mask].index]
         try:
-            input_points = self._points[mask]
-            return self.from_dataframe(df, parmap=self._parmap, points = input_points)
+            input_samples = {key: s.apply_boolean_mask(mask) for key, s in self._parameter_samples.items()}
         except:
-            return self.from_dataframe(df, parmap=self._parmap)
+            input_samples = None
+ 
+        return self.from_dataframe(df, parmap=self._parmap, samples=input_samples, *args, **kwargs)
 
 
     def replace_values_by_mask(self, mask, column, value):
@@ -199,6 +212,51 @@ class Catalog(ABC):
         for par in pars:
             self.add_param(par)
 
+    def attach_samples(self, par: str, samples: Distribution):
+        """
+        Attach samples for a given parameter to the catalog.
+        
+        """
+        try:
+            base = self[par]
+        except:
+            logging.error("Unable to find catalog parameter {}".format(par))
+        
+        try:
+            samples = self._parameter_samples
+        except:
+            self._parameter_samples = {}
+        
+        if par in self._inverse_map.keys():
+            param = self._inverse_map[par]
+        else: 
+            param = par
+        self._parameter_samples.update({param: samples})
+    
+    def has_samples(self, *args, **kwargs):
+        try:
+            return list(self._parameter_samples.keys())
+        except:
+            return False
+    
+    def get_samples(self, key):
+        """
+        Checks to see if a particular paramater has samples associated with it
+        Returns the samples if it does, otherwise False
+        """
+        if key in self._inverse_map.keys():
+            param = self._inverse_map[key]
+        else:
+            param = key
+        #Need to update to handle parameter units. 
+        try:
+            samples = self._parameter_samples[param]
+            return samples
+        except:
+            return False
+
+
+
     @abstractmethod
     def add_subregion(self, *args, **kwargs):
         pass
@@ -219,10 +277,24 @@ class Catalog2D(Catalog):
         self._unions = {}
 
 
+    def _handle_extras(self, *args, **kwargs):
+        if 'points' in kwargs.keys() and kwargs['points'] is not None:
+            self._points = points
+            self._points_initialized = True
+        super()._handle_extras(*args, **kwargs)
+
+
     def get_points(self, *args, **kwargs):
         if not self._points_initialized:
             self._init_points()
         return self._points
+
+    def apply_boolean_mask(self, mask, *args, **kwargs):
+        try:
+            points = self._points[mask]
+        except:
+            points = None
+        return super().apply_boolean_mask(mask, points=points, *args, **kwargs)
 
     def add_subregion(self, name, reg, *args, **kwargs):
         """
@@ -330,6 +402,15 @@ class SkyCatalog2D(Catalog2D):
         base_parmap = ({'x': 'ra', 'y': 'dec'})
         super().__init__(cat, base_parmap=base_parmap, *args, **kwargs)
 
+    def _handle_extras(self, *args, **kwargs):
+        if 'skypoints' in kwargs.keys() and kwargs['skypoints'] is not None:
+            p = kwargs['skypoints']
+            if len(p) == len(self._cat):
+                self._skypoints = p
+                self._skypoints_initialized = True
+        super()._handle_extras(*args, **kwargs)
+        
+
     @require_validation(['x', 'y'])
     def _init_points(self):
         """
@@ -357,6 +438,15 @@ class SkyCatalog2D(Catalog2D):
             self._points_initialized
             return self._points
 
+
+    def apply_boolean_mask(self, mask):
+        try:
+            skypoints = self._skypoints[mask]
+        except:
+            skypoints = None
+        return super().apply_boolean_mask(mask, skypoints = skypoints)
+    
+    
     def get_points(self, point_type='shapely'):
         if point_type == 'shapely':
             return self._get_points()

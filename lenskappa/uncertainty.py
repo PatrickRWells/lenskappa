@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 import numpy as np
-import matplotlib.pyplot as plt
 import logging
 
 class Distribution(ABC):

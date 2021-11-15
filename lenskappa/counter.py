@@ -9,7 +9,7 @@ import math
 import logging
 import astropy.units as u
 import atexit
-
+import psutil
 
 from lenskappa.dataset import DataSet
 from lenskappa.catalog import Catalog
@@ -61,7 +61,7 @@ class Counter(ABC):
         """
         pass
 
-    def add_catalog_filter(self, filter, name, filter_type = 'absolute', catalogs = 'all'):
+    def add_catalog_filter(self, filter, name, filter_type = 'periodic', catalogs = 'all'):
         """
         Add a filter to the cataog(s)
 
@@ -76,18 +76,11 @@ class Counter(ABC):
 
 
         """
-        allowed_types = ['absolute', 'periodic']
+        allowed_types =  ['periodic']
 
         if filter_type not in allowed_types:
             logging.error("Allowed filter types are {}".format(allowed_types))
             return
-
-        if filter_type == 'absolute':
-            try:
-                filters = self._absolute_filters
-            except:
-                self._absolute_filters = {}
-                filters = self._absolute_filters
 
         elif filter_type == 'periodic':
             try:
@@ -98,31 +91,6 @@ class Counter(ABC):
 
         filters.update({name: {'filter': filter, 'which': catalogs}})
 
-
-
-    def apply_absolute_filters(self, catalog, catname, *args, **kwargs):
-        """
-        Absolute filters are filters that are applied to the catalog(s) at the beginning of the run.
-        Any changes the filter makes to the catalog will stay with the catalog throughout the run.
-        Examples include filtering out objects past a certain redshift.
-        """
-        try:
-            filters = self._absolute_filters
-
-        except AttributeError:
-            return catalog
-
-        for name, filter in filters.items():
-            try:
-                if filter['which'] == 'all' or catname in filter['which']:
-                    catalog = self.apply_filter(catalog, filter)
-                    return catalog
-
-            except KeyError:
-                logging.error("Error: filter {} does not have a 'which' parameter".format(name))
-
-            except:
-                logging.error("Unable to apply filter {}".format(name))
 
     def apply_periodic_filters(self, catalog, catname, *args, **kwargs):
         """
@@ -306,17 +274,6 @@ class RatioCounter(Counter):
         #Remove all objects from the field catalog that fall outside the region
         self._field_center, self._radius = self._field_region.skycoord
         self._field_catalog = self._field_catalog.get_objects_in_region(self._field_region)
-    
-    def _check_optionals(self, *args, **kwargs):
-        """
-        Checks for optional configurations that may have been attached to some of the input objects.
-        Example: Sampling a given catalog value
-        FUTUTRE - This should be replaced with a more robust analysis options class
-        """
-        samples = self._field_catalog.has_samples()
-        if samples:
-            self._field_catalog_samples = samples
-            self._has_catalog_samples = True
 
 
 
@@ -329,7 +286,6 @@ class RatioCounter(Counter):
             num_samples: Number of control apertures to generate
             threads: Number of threads to run
         """
-        self._check_optionals(*args, **kwargs)
 
         if threads > 1:
             MultiThreadObject.set_num_threads(threads)
@@ -337,12 +293,9 @@ class RatioCounter(Counter):
         self._validate_all(*args, **kwargs)
         if not self._valid:
             exit()
-
-        self._field_catalog = self.apply_absolute_filters(self._field_catalog, 'field')
         self._field_catalog.get_distances(self._field_region.skycoord[0], unit=u.arcsec)
 
         #Since the survey is not a Catalog object, it has a handler for filters.
-        self._reference_survey.handle_catalog_filter(self.apply_absolute_filters, catname='control')
 
         #Load the weights
         if weights == 'all':
@@ -356,6 +309,11 @@ class RatioCounter(Counter):
         #If no weights were loaded, terminate
         if self._weightfns is None:
             return
+
+        sample_param = self._field_catalog.has_samples()
+        if sample_param:
+            self._generate_catalog_samples(sample_param)
+
 
         #Handle multithreaded runs
         if threads > 1:
@@ -382,6 +340,8 @@ class RatioCounter(Counter):
 
             tile = self._reference_survey.generate_circular_tile(self._radius, *args, **kwargs)
             control_catalog = self._reference_survey.get_objects(tile, masked=self._mask, get_distance=True, dist_units = u.arcsec)
+        
+
 
             if len(control_catalog) == 0:
                 #Sometimes the returned catalog will be empty, in which case
@@ -407,6 +367,12 @@ class RatioCounter(Counter):
             row = self._parse_weight_values(field_weights, control_weights)
             loop_i += 1
             yield row
+    
+    def _generate_catalog_samples(self, sample_param, *args, **kwargs):
+        #At present, we can only handle one sampled param at a time
+        par = sample_param[0]
+        field_catalogs = self._field_catalog.generate_catalogs_from_samples(par)
+        self._sampled_catalogs = field_catalogs
 
     def _parse_weight_values(self, field_weights, control_weights):
 

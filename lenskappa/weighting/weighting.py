@@ -60,8 +60,40 @@ class weight:
                 exit()
         
         self._parmap = cat_pars
+        self._sampled_pars = catalog.has_samples()
+        try:
+            self._intersections = set(self._cat_params).intersection(self._sampled_pars)
+        except:
+            self._intersections = False
 
-        return self._weightfn(catalog)
+
+        if self._sampled_pars and self._intersections:
+            self._compute_weights_sampled_params(catalog)    
+        else:
+            return self._weightfn(catalog)
+    
+    def _compute_weight_sampled_params(self, catalog):
+        """
+        Compute weights when one or more
+        params has a sample instead of a single value
+        I realized too late that this will not work :P
+        """
+        samples = {key: catalog.get_samples(key) for key in self._sampled}
+        if len(samples.keys()) != 1:
+            logging.error("Currently unable to handle more than one sampled parameter")
+            return self._weightfn(catalog)
+        
+        for name, sample_obj in samples.values():
+            num_samples = sample_obj.num_samples
+            storage = np.zeros()
+            actual_vals = catalog[name]
+            for sample in sample_obj.get_samples():
+                catalog[name] = sample
+
+
+            catalog[name] = actual_vals
+
+        
 
 
 def load_all_weights():

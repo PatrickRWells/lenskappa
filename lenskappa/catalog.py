@@ -205,8 +205,9 @@ class Catalog(ABC):
 
     def add_param(self, par):
         name = par.standard
-        if name not in self._parmap.keys():
-            self._parmap.update({name: par})
+        if name in self._parmap.keys():
+            logging.warning("Overwriting parameter in catalog!")
+        self._parmap.update({name: par})
 
     def add_params(self, pars):
         for par in pars:
@@ -231,14 +232,32 @@ class Catalog(ABC):
             param = self._inverse_map[par]
         else: 
             param = par
+        print("Hello!")
         self._parameter_samples.update({param: samples})
+        print(self._parameter_samples)
     
     def has_samples(self, *args, **kwargs):
         try:
             return list(self._parameter_samples.keys())
         except:
             return False
-    
+        
+    def generate_catalogs_from_samples(self, sample_param, *args, **kwargs):
+        """
+        Generates N catalog objects, where N is the number of samples of a given param
+        Should not actually duplicate the catalog N times. 
+        """
+        samples, unit = self.get_samples(sample_param)
+        key = '_'.join([sample_param, 'sampled'])
+        catalogs = []
+        for sample_column in np.transpose(samples):
+            cat = self.from_dataframe(self._cat, parmap=self._parmap, *args, **kwargs)
+            cat[key] = sample_column
+            param = QuantCatalogParam(key, sample_param, unit)
+            cat.add_param(param)
+            catalogs.append(cat)
+        return catalogs
+
     def get_samples(self, key):
         """
         Checks to see if a particular paramater has samples associated with it
@@ -248,10 +267,14 @@ class Catalog(ABC):
             param = self._inverse_map[key]
         else:
             param = key
-        #Need to update to handle parameter units. 
+        #Need to update to handle parameter units.
         try:
-            samples = self._parameter_samples[param]
-            return samples
+            unit = self._parmap[key].get_unit()
+        except:
+            unit = None
+        try:
+            samples = self._parameter_samples[param].get_all_samples()
+            return samples, unit
         except:
             return False
 
@@ -279,7 +302,7 @@ class Catalog2D(Catalog):
 
     def _handle_extras(self, *args, **kwargs):
         if 'points' in kwargs.keys() and kwargs['points'] is not None:
-            self._points = points
+            self._points = kwargs['points']
             self._points_initialized = True
         super()._handle_extras(*args, **kwargs)
 

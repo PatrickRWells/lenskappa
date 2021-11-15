@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
 import matplotlib.pyplot as plt
+import logging
 
 class Distribution(ABC):
 
@@ -13,8 +14,15 @@ class Distribution(ABC):
         pass
     
     def get_sample(self, *args, **kwargs):
-        for sample in self._samples:
-            yield sample        
+        for sample in np.transpose(self._samples):
+            yield sample
+    
+    def get_all_samples(self, *args, **kwargs):
+        try:
+            return self._samples
+        except:
+            logging.error("No samples have been generated!")
+            return
 
 
 class GaussianDistribution(Distribution):
@@ -27,6 +35,10 @@ class GaussianDistribution(Distribution):
         output =  GaussianDistribution(self._centers, self._widths)
         output._samples = self._samples[mask]
         return output
+
+    @property
+    def num_samples(self):
+        return self._samples.shape[1]
 
     def generate_samples(self, n, *args, **kwargs):
         num_objs = len(self._centers)

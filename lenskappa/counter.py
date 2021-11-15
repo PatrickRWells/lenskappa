@@ -312,8 +312,10 @@ class RatioCounter(Counter):
 
         sample_param = self._field_catalog.has_samples()
         if sample_param:
+            self._has_catalog_samples = True
             self._generate_catalog_samples(sample_param)
-
+        else:
+            self._has_catalog_samples = False
 
         #Handle multithreaded runs
         if threads > 1:
@@ -350,24 +352,31 @@ class RatioCounter(Counter):
                 logging.warning("Found no objets for tile centered at {}".format(tile.skycoord[0]))
                 logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped, loop_i+skipped+1))
                 continue
-
-            if self._mask:
-                #Mask
-                field_catalog = self._reference_survey.mask_external_catalog(self._field_catalog, self._field_region, tile)
-
+            if self._has_catalog_samples:
+                field_catalog = [self._prep_field_catalog(cat, internal_region=tile) for cat in self._sampled_catalogs]
             else:
-
-                field_catalog = self._field_catalog
+                field_catalog = [self._prep_field_catalog(self._field_catalog, internal_region=tile)]
 
             control_catalog = self.apply_periodic_filters(control_catalog, 'control')
-            field_catalog = self.apply_periodic_filters(field_catalog, 'field')
-
-            field_weights = {key: weight.compute_weight(field_catalog) for key, weight in self._weightfns.items()}
             control_weights = {key: weight.compute_weight(control_catalog) for key, weight in self._weightfns.items()}
+
+            field_weights = {key: [weight.compute_weight(cat) for cat in field_catalog] for key, weight in self._weightfns.items()}
             row = self._parse_weight_values(field_weights, control_weights)
             loop_i += 1
             yield row
     
+    def _prep_field_catalog(self, cat, *args, **kwargs):
+            if self._mask:
+                field_catalog = self._reference_survey.mask_external_catalog(cat, external_region=self._field_region, *args, **kwargs)
+
+            else:
+                field_catalog = cat
+
+            field_catalog = self.apply_periodic_filters(field_catalog, 'field')
+            return field_catalog
+
+
+
     def _generate_catalog_samples(self, sample_param, *args, **kwargs):
         #At present, we can only handle one sampled param at a time
         par = sample_param[0]
@@ -381,41 +390,37 @@ class RatioCounter(Counter):
         """
         np.seterr(invalid='raise')
 
-        return_weights = {}
+        return_weights = {weight_name: np.zeros(len(weight_values)) for weight_name, weight_values in field_weights.items()}
 
         for weight_name, weight_values in field_weights.items():
             try:
-                field_weight = float(weight_values)
                 control_weight = float(control_weights[weight_name])
-                try:
-                    ratio = field_weight/control_weight
-                except Exception as e:
-                    """
-                    This should result from an overflow
-                    """
-                    return_weights.update({weight_name: -1})
-                    continue
-
-                return_weights.update({weight_name: ratio})
-                continue
             except:
-                pass
-            
-            try:
-                field_weight = np.sum(weight_values)
                 control_weight = np.sum(control_weights[weight_name])
+
+            for index, value in enumerate(weight_values):
+
                 try:
-                    ratio = field_weight/control_weight
-                except Exception as e:
-                    return_weights.update({weight_name: -1})
+                    field_weight = float(value)
+                    try:
+                        ratio = field_weight/control_weight
+                        return_weights[weight_name][index] = ratio
+                    except Exception as e:
+                        """
+                        This should result from an overflow
+                        """
+                        return_weights[weight_name][index] = -1
                     continue
+                except:
+                    field_weight = np.sum(value)
+                    try:
+                        ratio = field_weight/control_weight
+                        return_weights[weight_name][index] = ratio
+                    except Exception as e:
+                        return_weights[weight_name][index] = -1
+                        continue
 
-
-                return_weights.update({weight_name: ratio})
-            except:
-                logging.error("Unable to parse weight values of type {}".format(weight_name))
-
-        return pd.Series(return_weights)
+        return pd.DataFrame(return_weights)
     
 
 

@@ -232,9 +232,7 @@ class Catalog(ABC):
             param = self._inverse_map[par]
         else: 
             param = par
-        print("Hello!")
         self._parameter_samples.update({param: samples})
-        print(self._parameter_samples)
     
     def has_samples(self, *args, **kwargs):
         try:
@@ -251,7 +249,7 @@ class Catalog(ABC):
         key = '_'.join([sample_param, 'sampled'])
         catalogs = []
         for sample_column in np.transpose(samples):
-            cat = self.from_dataframe(self._cat, parmap=self._parmap, *args, **kwargs)
+            cat = self.from_dataframe(self._cat.copy(), parmap=self._parmap, *args, **kwargs)
             cat[key] = sample_column
             param = QuantCatalogParam(key, sample_param, unit)
             cat.add_param(param)

@@ -9,7 +9,6 @@ import math
 import logging
 import astropy.units as u
 import atexit
-import psutil
 
 from lenskappa.dataset import DataSet
 from lenskappa.catalog import Catalog

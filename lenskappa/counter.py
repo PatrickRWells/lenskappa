@@ -336,7 +336,8 @@ class RatioCounter(Counter):
         Generator that yields the weights
         """
         loop_i = 0
-        skipped = 0
+        skipped_reference = 0
+        skipped_field = 0
         while loop_i < num_samples:
 
             tile = self._reference_survey.generate_circular_tile(self._radius, *args, **kwargs)
@@ -347,15 +348,21 @@ class RatioCounter(Counter):
             if len(control_catalog) == 0:
                 #Sometimes the returned catalog will be empty, in which case
                 #we reject the sample
-                skipped += 1
+                skipped_reference += 1
                 logging.warning("Found no objets for tile centered at {}".format(tile.skycoord[0]))
-                logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped, loop_i+skipped+1))
+                logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_reference, loop_i+skipped_reference+skipped_field+1))
                 continue
             if self._has_catalog_samples:
                 field_catalog = [self._prep_field_catalog(cat, internal_region=tile) for cat in self._sampled_catalogs]
             else:
                 field_catalog = [self._prep_field_catalog(self._field_catalog, internal_region=tile)]
-
+            
+            if np.all([empty for empty in map(lambda cat: len(cat) == 0, field_catalog)]):
+                skipped_field += 1
+                logging.warning("Found no found in field catalog after masking")
+                logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_field, loop_i+skipped_reference+skipped_field+1))
+                continue
+                
             control_catalog = self.apply_periodic_filters(control_catalog, 'control')
             control_weights = {key: weight.compute_weight(control_catalog) for key, weight in self._weightfns.items()}
 

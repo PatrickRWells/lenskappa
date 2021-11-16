@@ -4,7 +4,7 @@ def gal(cat):
     """
     Simply counts the number of galaxies
     """
-    return len(cat)
+    return np.ones(len(cat), dtype=np.float64)
 
 def zweight(cat):
     z_gal = cat['z_gal']

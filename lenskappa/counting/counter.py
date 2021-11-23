@@ -380,9 +380,10 @@ class RatioCounter(Counter):
                     control_weights.update({name: self._weightfns[name].compute_weight(control_catalog)})
                     
                 else:
+                    wname = name.split('_')[0]
                     #I'd much rather fold these into a single funtion call
-                    field_weights.update({name: [self._weightfns[name].compute_weight(c, meds=True) for c in field_catalog]})
-                    control_weights.update({name: self._weightfns[name].compute_weight(control_catalog, meds=True)})
+                    field_weights.update({name: [self._weightfns[wname].compute_weight(c, meds=True) for c in field_catalog]})
+                    control_weights.update({name: self._weightfns[wname].compute_weight(control_catalog, meds=True)})
 
             row = self._parse_weight_values(field_weights, control_weights)
             loop_i += 1

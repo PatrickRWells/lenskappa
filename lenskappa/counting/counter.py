@@ -276,7 +276,7 @@ class RatioCounter(Counter):
 
 
 
-    def get_weights(self, weights, num_samples = 100, output_file = "output.csv", threads = 1, *args, **kwargs):
+    def get_weights(self, weights, num_samples = 100, output_file = "output.csv", threads = 1, meds=False, *args, **kwargs):
         """
         get the weighted count ratios.
 
@@ -303,7 +303,15 @@ class RatioCounter(Counter):
             self._weightfns = weighting.load_some_weights(weights)
 
         #Initialize the dataframe for storage
-        weight_data = pd.DataFrame(columns=list(self._weightfns.keys()))
+        if meds:
+            weight_names = list(self._weightfns.keys())
+            self._weight_names = []
+            for name in weight_names:
+                self._weight_names.append(name)
+                self._weight_names.append('_'.join([name, 'meds']))
+        else:
+            self._weight_names = list(self._weightfns.keys())
+        weight_data = pd.DataFrame(columns=self._weight_names)
 
         #If no weights were loaded, terminate
         if self._weightfns is None:
@@ -364,9 +372,17 @@ class RatioCounter(Counter):
                 continue
                 
             control_catalog = self.apply_periodic_filters(control_catalog, 'control')
-            control_weights = {key: weight.compute_weight(control_catalog) for key, weight in self._weightfns.items()}
+            control_weights={}
+            field_weights={}
+            for name in self._weight_names:
+                if 'meds' not in name:
+                    field_weights.update({name: self._weightfns[name].compute_weight(field_catalog)})
+                    control_catalog.update({name: self._weightfns[name].compute_weight(control_catalog)})
+                else:
+                    #I'd much rather fold these into a single funtion call
+                    field_weights.update({name: self._weightfns[name].compute_weight(field_catalog, meds=True)})
+                    control_catalog.update({name: self._weightfns[name].compute_weight(control_catalog, meds=True)})
 
-            field_weights = {key: [weight.compute_weight(cat) for cat in field_catalog] for key, weight in self._weightfns.items()}
             row = self._parse_weight_values(field_weights, control_weights)
             loop_i += 1
             yield row
@@ -510,10 +526,4 @@ class SingleCounter(Counter):
                 ret_val.update({name: val})
         
         return ret_val
-
-if __name__ == '__main__':
-    from lenskappa.surveys.ms.ms import millenium_simulation
-    mils = millenium_simulation()
-    mils.load_catalogs_by_field(0,0,z_s = 1.523)
-    ct = SingleCounter(mils, False)
-    ct.get_weights(weights = ['gal', 'oneoverr', 'zoverr'], output_file = "/Users/patrick/Documents/Current/Research/LensEnv/ms/ms_00.csv", output_positions=True)
+ 

@@ -31,15 +31,19 @@ condition = 0
 [mass2rms]
 params = ['cat.m_gal']
 condition = 0
+post = 'np.sqrt'
 [mass3rms]
 params = ['cat.m_gal']
 condition = 0
+post = 'np.cbrt'
 [mass2overrms]
 params = ['cat.m_gal', 'cat.r']
 condition = 0
+post = 'np.sqrt'
 [mass3overrms]
 params = ['cat.m_gal', 'cat.r']
 condition = 0
+post = 'np.cbrt'
 [flexion]
 params = ['cat.m_gal', 'cat.r']
 condition = 0

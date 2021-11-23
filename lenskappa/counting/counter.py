@@ -10,11 +10,11 @@ import logging
 import astropy.units as u
 import atexit
 
-from lenskappa.dataset import DataSet
-from lenskappa.catalog import Catalog
-from lenskappa.region import Region
+from lenskappa.datasets.dataset import DataSet
+from lenskappa.catalog.catalog import Catalog
+from lenskappa.spatial import Region
 from lenskappa.weighting import weighting
-from lenskappa.surveys.survey import Survey
+from lenskappa.datasets.surveys.survey import Survey
 from lenskappa.utils.multithreading import MultiThreadObject
 
 

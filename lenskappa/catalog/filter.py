@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 import logging
-from os import makedev
 import numpy as np
 
 

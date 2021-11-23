@@ -1,4 +1,3 @@
-from lenskappa.params import QuantCatalogParam
 import pandas as pd
 import numpy as np
 import astropy.units as u
@@ -7,11 +6,10 @@ import logging
 from astropy.coordinates.sky_coordinate import SkyCoord
 from shapely import geometry
 from abc import ABC, abstractmethod
-
-from lenskappa.region import CircularSkyRegion, SkyRegion
+from lenskappa.spatial import CircularSkyRegion, SkyRegion
 from lenskappa.utils.decorators import require_points, require_validation
-from lenskappa.params import CatalogParam
-from lenskappa.uncertainty import Distribution
+from .params import CatalogParam, QuantCatalogParam
+from .sampling import Distribution
 
 
 class Catalog(ABC):

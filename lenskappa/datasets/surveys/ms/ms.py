@@ -9,12 +9,12 @@ possible todo - update from "survey" to dataset
 
 """
 
-from lenskappa.region import CircularSkyRegion, SkyRegion
+from lenskappa.spatial import CircularSkyRegion, SkyRegion
 from shapely import geometry
 
 from lenskappa.catalog import SkyCatalog2D
-from lenskappa.simulations.simulation import Simulation
-from lenskappa.params import QuantCatalogParam, SingleValueParam
+from lenskappa.datasets.simulations.simulation import Simulation
+from lenskappa.catalog import QuantCatalogParam, SingleValueParam
 from shapely import geometry
 import pandas as pd
 

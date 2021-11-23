@@ -1,4 +1,4 @@
-from lenskappa.dataset import SkyDataSet
+from lenskappa.datasets.dataset import SkyDataSet
 
 class Simulation(SkyDataSet):
     

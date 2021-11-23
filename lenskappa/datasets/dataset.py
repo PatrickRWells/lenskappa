@@ -2,7 +2,7 @@ from abc import ABC
 
 from lenskappa.utils.datamanager import SurveyDataManager
 from lenskappa.catalog import SkyCatalog2D
-from lenskappa.region import SkyRegion
+from lenskappa.spatial import SkyRegion
 import logging
 
 class DataSet(ABC):

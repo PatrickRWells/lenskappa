@@ -376,12 +376,13 @@ class RatioCounter(Counter):
             field_weights={}
             for name in self._weight_names:
                 if 'meds' not in name:
-                    field_weights.update({name: self._weightfns[name].compute_weight(field_catalog)})
-                    control_catalog.update({name: self._weightfns[name].compute_weight(control_catalog)})
+                    field_weights.update({name: [self._weightfns[name].compute_weight(c) for c in field_catalog]})
+                    control_weights.update({name: self._weightfns[name].compute_weight(control_catalog)})
+                    
                 else:
                     #I'd much rather fold these into a single funtion call
-                    field_weights.update({name: self._weightfns[name].compute_weight(field_catalog, meds=True)})
-                    control_catalog.update({name: self._weightfns[name].compute_weight(control_catalog, meds=True)})
+                    field_weights.update({name: [self._weightfns[name].compute_weight(c, meds=True) for c in field_catalog]})
+                    control_weights.update({name: self._weightfns[name].compute_weight(control_catalog, meds=True)})
 
             row = self._parse_weight_values(field_weights, control_weights)
             loop_i += 1

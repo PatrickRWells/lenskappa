@@ -59,7 +59,7 @@ class GaussianDistribution(Distribution):
 
         self._samples = scaled_samples
     
-def process_samples_from_array(catalog, id_column, samples):
+def process_samples_from_array(catalog, id_column, samples, parname):
     n_samples = len(samples.columns)-2 #Assume first column contains object IDs
     data = np.zeros((len(catalog), n_samples))
     ids = samples['objid']
@@ -69,4 +69,4 @@ def process_samples_from_array(catalog, id_column, samples):
         row_i = mask[0][0]
         data[row_i] = row.drop(labels=['Unnamed: 0', 'objid'])
     dist = ArbitraryDistribution(data)
-    return dist
+    catalog.attach_samples(parname, dist)

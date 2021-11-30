@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
 import numpy as np
 import logging
+from copy import deepcopy
+
+from lenskappa.catalog import params
 
 class Distribution(ABC):
 
@@ -23,17 +26,23 @@ class Distribution(ABC):
             logging.error("No samples have been generated!")
             return
 
+    def apply_boolean_mask(self, mask):
+        cp = deepcopy(self)
+        cp._samples = cp._samples[mask]
+        return cp
+
+class ArbitraryDistribution(Distribution):
+    def __init__(self, samples, *args, **kwargs):
+        super().__init__("arbitrary")
+        self._samples = samples
+    def generate_samples(self, n, *args, **kwargs):
+        pass
 
 class GaussianDistribution(Distribution):
     def __init__(self, centers, widths, *args, **kwargs):
         super().__init__("gaussian", *args, **kwargs)
         self._centers = centers
         self._widths = widths
-
-    def apply_boolean_mask(self, mask):
-        output =  GaussianDistribution(self._centers, self._widths)
-        output._samples = self._samples[mask]
-        return output
 
     @property
     def num_samples(self):
@@ -50,5 +59,14 @@ class GaussianDistribution(Distribution):
 
         self._samples = scaled_samples
     
-
-
+def process_samples_from_array(catalog, id_column, samples):
+    n_samples = len(samples.columns)-2 #Assume first column contains object IDs
+    data = np.zeros((len(catalog), n_samples))
+    ids = samples['objid']
+    for index, row in samples.iterrows():
+        sample_id = ids[index]
+        mask =  np.where(catalog[id_column] == sample_id)
+        row_i = mask[0][0]
+        data[row_i] = row.drop(labels=['Unnamed: 0', 'objid'])
+    dist = ArbitraryDistribution(data)
+    return dist

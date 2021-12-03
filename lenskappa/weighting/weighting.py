@@ -88,7 +88,7 @@ class weight:
             self._compute_weights_sampled_params(catalog)    
         else:
             weights = self._weightfn(catalog)
-            if meds:
+            if meds and len(weights) != 0: #Second condition avoids crash
                 weights = np.median(weights)*np.ones(len(weights), dtype=np.float64)
             if self._post is not None:
                 weights = self._post(np.sum(weights))

@@ -367,7 +367,7 @@ class RatioCounter(Counter):
             
             if np.all([empty for empty in map(lambda cat: len(cat) == 0, field_catalog)]):
                 skipped_field += 1
-                logging.warning("Found no found in field catalog after masking")
+                logging.warning("Found no objects in field catalog after masking")
                 logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_field, loop_i+skipped_reference+skipped_field+1))
                 continue
                 

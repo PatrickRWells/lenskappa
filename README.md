@@ -6,6 +6,8 @@ study the environments around strong gravitational lenses.
 
 lenskappa has been tested and is working with python >= 3.7. It may work on older versions of python, but I recommend just creating a new conda or virtualenv environment.
 
+If you are unfamiliar with virtual environments, start [here](https://www.youtube.com/watch?v=KxvKCSwlUv8).
+
 Once this environment has been created, you can install lenskappa by doing the following.
 
 ```
@@ -14,7 +16,7 @@ cd lenskappa
 pip install -r requirements.txt  
 pip install -e .  
 ```
-Since lenskappa is in early development, it is recommended you install it in development mode (denoted by the `-e` flag in the install statement). You can then update the package simply by pulling the latest changes from github.
+Since lenskappa is in early development, it is recommended you install it in development mode (denoted by the `-e` flag in the install statement). You can then update the package simply by pulling the latest changes from GitHub. We may try to package it for PyPi in the future.
 
 ## Usage
 
@@ -34,16 +36,10 @@ Once you have added your control field data, you can compute weight ratios for a
 
 ## Roadmap
 
-#### Immediate
-  - Update sampler to properly sample on a sphere, since some surveys are big enough for this to matter
-  - Update datamanger to store paths to data files in a different location than the data config
 #### Short term
-  - Add CFHTLens as a reference survey
-  - Add any other surveys that are needed for immediate work
-  - Complete implementation of multithreading for computing weighted number counts
+  - Internal representation of weights
 #### Medium term
+  - Analysis Templates
   - Improve documentation 
   - Write unit tests
   - Make error handling more robust
-#### Long term
-  - Add additional modules analysis past weighted number counts 

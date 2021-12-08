@@ -10,12 +10,11 @@ import logging
 import astropy.units as u
 import atexit
 
-
-from lenskappa.dataset import DataSet
-from lenskappa.catalog import Catalog
-from lenskappa.region import Region
+from lenskappa.datasets.dataset import DataSet
+from lenskappa.catalog.catalog import Catalog
+from lenskappa.spatial import Region
 from lenskappa.weighting import weighting
-from lenskappa.surveys.survey import Survey
+from lenskappa.datasets.surveys.survey import Survey
 from lenskappa.utils.multithreading import MultiThreadObject
 
 
@@ -61,7 +60,7 @@ class Counter(ABC):
         """
         pass
 
-    def add_catalog_filter(self, filter, name, filter_type = 'absolute', catalogs = 'all'):
+    def add_catalog_filter(self, filter, name, filter_type = 'periodic', catalogs = 'all'):
         """
         Add a filter to the cataog(s)
 
@@ -76,18 +75,11 @@ class Counter(ABC):
 
 
         """
-        allowed_types = ['absolute', 'periodic']
+        allowed_types =  ['periodic']
 
         if filter_type not in allowed_types:
             logging.error("Allowed filter types are {}".format(allowed_types))
             return
-
-        if filter_type == 'absolute':
-            try:
-                filters = self._absolute_filters
-            except:
-                self._absolute_filters = {}
-                filters = self._absolute_filters
 
         elif filter_type == 'periodic':
             try:
@@ -98,31 +90,6 @@ class Counter(ABC):
 
         filters.update({name: {'filter': filter, 'which': catalogs}})
 
-
-
-    def apply_absolute_filters(self, catalog, catname, *args, **kwargs):
-        """
-        Absolute filters are filters that are applied to the catalog(s) at the beginning of the run.
-        Any changes the filter makes to the catalog will stay with the catalog throughout the run.
-        Examples include filtering out objects past a certain redshift.
-        """
-        try:
-            filters = self._absolute_filters
-
-        except AttributeError:
-            return catalog
-
-        for name, filter in filters.items():
-            try:
-                if filter['which'] == 'all' or catname in filter['which']:
-                    catalog = self.apply_filter(catalog, filter)
-                    return catalog
-
-            except KeyError:
-                logging.error("Error: filter {} does not have a 'which' parameter".format(name))
-
-            except:
-                logging.error("Unable to apply filter {}".format(name))
 
     def apply_periodic_filters(self, catalog, catname, *args, **kwargs):
         """
@@ -307,7 +274,9 @@ class RatioCounter(Counter):
         self._field_center, self._radius = self._field_region.skycoord
         self._field_catalog = self._field_catalog.get_objects_in_region(self._field_region)
 
-    def get_weights(self, weights, num_samples = 100, output_file = "output.csv", threads = 1, *args, **kwargs):
+
+
+    def get_weights(self, weights, num_samples = 100, output_file = "output.csv", threads = 1, meds=False, *args, **kwargs):
         """
         get the weighted count ratios.
 
@@ -316,18 +285,16 @@ class RatioCounter(Counter):
             num_samples: Number of control apertures to generate
             threads: Number of threads to run
         """
+
         if threads > 1:
             MultiThreadObject.set_num_threads(threads)
         self._output_fname = output_file
         self._validate_all(*args, **kwargs)
         if not self._valid:
             exit()
-
-        self._field_catalog = self.apply_absolute_filters(self._field_catalog, 'field')
         self._field_catalog.get_distances(self._field_region.skycoord[0], unit=u.arcsec)
 
         #Since the survey is not a Catalog object, it has a handler for filters.
-        self._reference_survey.handle_catalog_filter(self.apply_absolute_filters, catname='control')
 
         #Load the weights
         if weights == 'all':
@@ -336,11 +303,26 @@ class RatioCounter(Counter):
             self._weightfns = weighting.load_some_weights(weights)
 
         #Initialize the dataframe for storage
-        weight_data = pd.DataFrame(columns=list(self._weightfns.keys()))
+        if meds:
+            weight_names = list(self._weightfns.keys())
+            self._weight_names = []
+            for name in weight_names:
+                self._weight_names.append(name)
+                self._weight_names.append('_'.join([name, 'meds']))
+        else:
+            self._weight_names = list(self._weightfns.keys())
+        weight_data = pd.DataFrame(columns=self._weight_names)
 
         #If no weights were loaded, terminate
         if self._weightfns is None:
             return
+
+        sample_param = self._field_catalog.has_samples()
+        if sample_param:
+            self._has_catalog_samples = True
+            self._generate_catalog_samples(sample_param)
+        else:
+            self._has_catalog_samples = False
 
         #Handle multithreaded runs
         if threads > 1:
@@ -362,34 +344,68 @@ class RatioCounter(Counter):
         Generator that yields the weights
         """
         loop_i = 0
-        skipped = 0
+        skipped_reference = 0
+        skipped_field = 0
         while loop_i < num_samples:
 
             tile = self._reference_survey.generate_circular_tile(self._radius, *args, **kwargs)
             control_catalog = self._reference_survey.get_objects(tile, masked=self._mask, get_distance=True, dist_units = u.arcsec)
+        
+
 
             if len(control_catalog) == 0:
                 #Sometimes the returned catalog will be empty, in which case
                 #we reject the sample
-                skipped += 1
+                skipped_reference += 1
                 logging.warning("Found no objets for tile centered at {}".format(tile.skycoord[0]))
-                logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped, loop_i+skipped+1))
+                logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_reference, loop_i+skipped_reference+skipped_field+1))
                 continue
-
-            if self._mask:
-                #Mask
-                field_catalog = self._reference_survey.mask_external_catalog(self._field_catalog, self._field_region, tile)
-
+            if self._has_catalog_samples:
+                field_catalog = [self._prep_field_catalog(cat, internal_region=tile) for cat in self._sampled_catalogs]
             else:
-
-                field_catalog = self._field_catalog
+                field_catalog = [self._prep_field_catalog(self._field_catalog, internal_region=tile)]
+            
+            if np.all([empty for empty in map(lambda cat: len(cat) == 0, field_catalog)]):
+                skipped_field += 1
+                logging.warning("Found no objects in field catalog after masking")
+                logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_field, loop_i+skipped_reference+skipped_field+1))
+                continue
+                
             control_catalog = self.apply_periodic_filters(control_catalog, 'control')
-            field_catalog = self.apply_periodic_filters(field_catalog, 'field')
-            field_weights = {key: weight.compute_weight(field_catalog) for key, weight in self._weightfns.items()}
-            control_weights = {key: weight.compute_weight(control_catalog) for key, weight in self._weightfns.items()}
+            control_weights={}
+            field_weights={}
+            for name in self._weight_names:
+                if 'meds' not in name:
+                    field_weights.update({name: [self._weightfns[name].compute_weight(c) for c in field_catalog]})
+                    control_weights.update({name: self._weightfns[name].compute_weight(control_catalog)})
+                    
+                else:
+                    wname = name.split('_')[0]
+                    #I'd much rather fold these into a single funtion call
+                    field_weights.update({name: [self._weightfns[wname].compute_weight(c, meds=True) for c in field_catalog]})
+                    control_weights.update({name: self._weightfns[wname].compute_weight(control_catalog, meds=True)})
+
             row = self._parse_weight_values(field_weights, control_weights)
             loop_i += 1
             yield row
+    
+    def _prep_field_catalog(self, cat, *args, **kwargs):
+            if self._mask:
+                field_catalog = self._reference_survey.mask_external_catalog(cat, external_region=self._field_region, *args, **kwargs)
+
+            else:
+                field_catalog = cat
+
+            field_catalog = self.apply_periodic_filters(field_catalog, 'field')
+            return field_catalog
+
+
+
+    def _generate_catalog_samples(self, sample_param, *args, **kwargs):
+        #At present, we can only handle one sampled param at a time
+        par = sample_param[0]
+        field_catalogs = self._field_catalog.generate_catalogs_from_samples(par)
+        self._sampled_catalogs = field_catalogs
 
     def _parse_weight_values(self, field_weights, control_weights):
 
@@ -398,41 +414,37 @@ class RatioCounter(Counter):
         """
         np.seterr(invalid='raise')
 
-        return_weights = {}
+        return_weights = {weight_name: np.zeros(len(weight_values)) for weight_name, weight_values in field_weights.items()}
 
         for weight_name, weight_values in field_weights.items():
             try:
-                field_weight = float(weight_values)
                 control_weight = float(control_weights[weight_name])
-                try:
-                    ratio = field_weight/control_weight
-                except Exception as e:
-                    """
-                    This should result from an overflow
-                    """
-                    return_weights.update({weight_name: -1})
-                    continue
-
-                return_weights.update({weight_name: ratio})
-                continue
             except:
-                pass
-            
-            try:
-                field_weight = np.sum(weight_values)
                 control_weight = np.sum(control_weights[weight_name])
+
+            for index, value in enumerate(weight_values):
+
                 try:
-                    ratio = field_weight/control_weight
-                except Exception as e:
-                    return_weights.update({weight_name: -1})
+                    field_weight = float(value)
+                    try:
+                        ratio = field_weight/control_weight
+                        return_weights[weight_name][index] = ratio
+                    except Exception as e:
+                        """
+                        This should result from an overflow
+                        """
+                        return_weights[weight_name][index] = -1
                     continue
+                except:
+                    field_weight = np.sum(value)
+                    try:
+                        ratio = field_weight/control_weight
+                        return_weights[weight_name][index] = ratio
+                    except Exception as e:
+                        return_weights[weight_name][index] = -1
+                        continue
 
-
-                return_weights.update({weight_name: ratio})
-            except:
-                logging.error("Unable to parse weight values of type {}".format(weight_name))
-
-        return pd.Series(return_weights)
+        return pd.DataFrame(return_weights)
     
 
 
@@ -516,10 +528,4 @@ class SingleCounter(Counter):
                 ret_val.update({name: val})
         
         return ret_val
-
-if __name__ == '__main__':
-    from lenskappa.surveys.ms.ms import millenium_simulation
-    mils = millenium_simulation()
-    mils.load_catalogs_by_field(0,0,z_s = 1.523)
-    ct = SingleCounter(mils, False)
-    ct.get_weights(weights = ['gal', 'oneoverr', 'zoverr'], output_file = "/Users/patrick/Documents/Current/Research/LensEnv/ms/ms_00.csv", output_positions=True)
+ 

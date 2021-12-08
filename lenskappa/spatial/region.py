@@ -4,7 +4,6 @@ from shapely import geometry
 import logging
 import astropy.units as u
 import numpy as np
-import time
 
 from lenskappa.utils.multithreading import MultiThreadObject
 

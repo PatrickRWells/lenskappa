@@ -1,10 +1,6 @@
-import os
-import lenskappa
-from lenskappa.surveys.survey import Survey
-from lenskappa import SurveyDataManager
+from lenskappa.utils import SurveyDataManager
 import argparse
 import logging
-import toml
 
 def add_surveydata(args):
     parser = argparse.ArgumentParser(description='ArgParser for add_surveydata')

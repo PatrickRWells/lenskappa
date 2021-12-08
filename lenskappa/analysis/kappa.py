@@ -5,7 +5,7 @@ import re
 import logging
 import itertools
 import numpy as np
-from lenskappa.surveys.ms.ms import millenium_simulation
+from lenskappa.datasets.surveys.ms.ms import millenium_simulation
 import astropy.units as u
 from scipy import stats
 

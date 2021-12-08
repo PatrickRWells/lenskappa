@@ -11,8 +11,8 @@ import hashlib
 import numpy as np
 
 import lenskappa
-from lenskappa.region import SkyRegion
-from lenskappa.dataset import SkyDataSet
+from lenskappa.spatial import SkyRegion
+from lenskappa.datasets.dataset import SkyDataSet
 
 
 class Survey(SkyDataSet):

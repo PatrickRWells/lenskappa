@@ -35,11 +35,10 @@ class SurveyDataManager:
         """
         self._survey = survey
         base = os.path.dirname(lenskappa.__file__)
-        self._basepath = os.path.join(base, 'surveys', survey)
+        self._basepath = os.path.join(base, 'datasets/surveys', survey)
         fname = '.'.join([survey, 'toml'])
         self._survey_config_location = os.path.join(self._basepath, fname)
         try:
-
             survey_config = toml.load(self._survey_config_location)
             self._validate_survey_config(survey_config)
 
@@ -252,7 +251,6 @@ class SurveyDataManager:
         except:
             logging.error("No support data type found")
             return
-
         try:
             support_data_id = data['id']
         except:

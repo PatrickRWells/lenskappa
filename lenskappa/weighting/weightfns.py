@@ -4,7 +4,7 @@ def gal(cat):
     """
     Simply counts the number of galaxies
     """
-    return len(cat)
+    return np.ones(len(cat), dtype=np.float64)
 
 def zweight(cat):
     z_gal = cat['z_gal']
@@ -48,21 +48,21 @@ def mass3overr(cat):
 def mass2rms(cat):
     # This weight can only return a single value. There are no relative weights
     weights = mass2(cat)
-    return np.sqrt(sum(weights))
+    return weights
 def mass3rms(cat):
     # This weight can only return a single value. There are no relative weights
     weights = mass3(cat)
-    return np.cbrt(sum(weights))
+    return weights
 
 def mass2overrms(cat):
     # This weight can only return a single value. There are no relative weights
     weights = mass2overr(cat)
-    return np.sqrt(sum(weights))
+    return weights
 
 def mass3overrms(cat):
     # This weight can only return a single value. There are no relative weights
     weights = mass3overr(cat)
-    return np.cbrt(sum(weights))
+    return weights
 
 def flexion(cat):
     m_gals = cat['m_gal']

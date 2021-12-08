@@ -10,11 +10,10 @@ import operator
 import traceback
 import re
 import time
-
-from lenskappa.surveys.survey import Survey
-from lenskappa.region import SkyRegion
+from lenskappa.datasets.surveys.survey import Survey
+from lenskappa.spatial import SkyRegion
 from lenskappa.catalog import SkyCatalog2D
-from lenskappa.starmask import StarMaskCollection, RegStarMask
+from lenskappa.catalog import StarMaskCollection, RegStarMask
 
 
 class HSCSurvey(Survey):

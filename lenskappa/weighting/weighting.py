@@ -4,6 +4,7 @@
 import logging
 import toml
 import lenskappa
+import numpy as np
 
 class weight:
 
@@ -36,8 +37,24 @@ class weight:
         pars = weightdata['params']
         self._cat_params = [par.split('.')[-1] for par in pars if par.startswith('cat')]
         self._other_params = [par for par in pars if not par.startswith('cat')]
+
+        try:
+            self._post = self._handle_post_fn(weightdata['post'])
+        except:
+            self._post = None
     
-    def compute_weight(self, catalog, pars={}):
+    def _handle_post_fn(self, name):
+        if not name.startswith("np"):
+            logging.error("Unable to load postprocess function for weight {}".format(self._name))
+        else:
+            funcname = name.split(".")[-1]
+            try:
+                return getattr(np, funcname)
+            except:
+                logging.error("Unable to load postprocess function for weight {}".format(self._name))
+                return None
+
+    def compute_weight(self, catalog, meds=False):
         """
         Computes the weights based on an input catalog
         parameters:
@@ -60,8 +77,45 @@ class weight:
                 exit()
         
         self._parmap = cat_pars
+        self._sampled_pars = catalog.has_samples()
+        try:
+            self._intersections = set(self._cat_params).intersection(self._sampled_pars)
+        except:
+            self._intersections = False
 
-        return self._weightfn(catalog)
+
+        if self._sampled_pars and self._intersections:
+            self._compute_weights_sampled_params(catalog)    
+        else:
+            weights = self._weightfn(catalog)
+            if meds and len(weights) != 0: #Second condition avoids crash
+                weights = np.median(weights)*np.ones(len(weights), dtype=np.float64)
+            if self._post is not None:
+                weights = self._post(np.sum(weights))
+            return weights
+    
+    def _compute_weight_sampled_params(self, catalog):
+        """
+        Compute weights when one or more
+        params has a sample instead of a single value
+        I realized too late that this will not work :P
+        """
+        samples = {key: catalog.get_samples(key) for key in self._sampled}
+        if len(samples.keys()) != 1:
+            logging.error("Currently unable to handle more than one sampled parameter")
+            return self._weightfn(catalog)
+        
+        for name, sample_obj in samples.values():
+            num_samples = sample_obj.num_samples
+            storage = np.zeros()
+            actual_vals = catalog[name]
+            for sample in sample_obj.get_samples():
+                catalog[name] = sample
+
+
+            catalog[name] = actual_vals
+
+        
 
 
 def load_all_weights():
@@ -96,3 +150,31 @@ def load_some_weights(weight_names):
     else:
         logging.error("No weights were loaded...")
         return None
+
+if __name__ == '__main__':
+    import astropy.units as u
+    from astropy.coordinates import SkyCoord
+    from lenskappa.catalog import QuantCatalogParam, SingleValueParam, SkyCatalog2D
+
+    ws = load_all_weights()
+    m_gal_param = QuantCatalogParam('demp_sm', 'm_gal', is_log=True)
+    z_gal_param = QuantCatalogParam('demp_photoz_best', 'z_gal')
+    z_s_param = SingleValueParam('z_s', 1.523)
+    ra_param = QuantCatalogParam('ra', 'ra', u.deg)
+    dec_param = QuantCatalogParam('dec', 'dec', u.deg)
+
+    pars = [m_gal_param, z_gal_param, z_s_param, ra_param, dec_param]
+
+    lens_field = SkyCatalog2D.read_csv("/Users/patrick/Documents/Current/Research/LensEnv/0924/weighting/lens_cat.csv", params=pars)
+    center = SkyCoord(141.23246, 2.32358, unit="deg")
+    others = SkyCoord(lens_field['ra'], lens_field['dec'], unit="deg")
+    distances = center.separation(others).to(u.arcsec).value
+    r_param = QuantCatalogParam("dist", "r", unit=u.arcsec)
+    lens_field['dist'] = distances
+    lens_field.add_param(r_param)
+
+    
+    for name, w in ws.items():
+        w1 = w.compute_weight(lens_field)
+        w1_meds = w.compute_weight(lens_field, meds=True)
+        print("Weight {}: {},   {}".format(name, w1, w1_meds))

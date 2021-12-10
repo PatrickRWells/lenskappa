@@ -110,13 +110,14 @@ class Counter(ABC):
             try:
                 if filter['which'] == 'all' or catname in filter['which']:
                     catalog = self.apply_filter(catalog, filter)
-                    return catalog
 
             except KeyError:
                 logging.error("Error: filter {} does not have a 'which' parameter".format(name))
 
             except:
                 logging.error("Unable to apply filter {}".format(name))
+        
+        return catalog
 
 
     def apply_filter(self, catalog, filter):

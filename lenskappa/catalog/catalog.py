@@ -232,12 +232,13 @@ class Catalog(ABC):
             param = par
         self._parameter_samples.update({param: samples})
     
+    
     def has_samples(self, *args, **kwargs):
         try:
             return list(self._parameter_samples.keys())
         except:
             return False
-        
+
     def generate_catalogs_from_samples(self, sample_param, *args, **kwargs):
         """
         Generates N catalog objects, where N is the number of samples of a given param
@@ -274,6 +275,13 @@ class Catalog(ABC):
         except:
             return False
 
+    def attach_distributions(self, distributions):
+        """
+        A distribution associates a particular value of params with a particular distribution.
+        For example, this allows us to draw samples from a given object at every weighting step
+        rather than just generating them at the beginning of the run.
+        """
+        pass
 
 
     @abstractmethod

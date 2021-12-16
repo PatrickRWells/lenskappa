@@ -160,6 +160,41 @@ class GaussianDistributionArray(DistributionArray):
             return samples
         else:
             logging.error("Distribution at point {} not initialized".format(coordinates))
+
+    def draw_many(self, coordinates, n):
+        """
+        Draw samples from many different distributions
+        coordinates: {parameter_name: [parameter_values]...}
+        n: number of samples to draw from each distribution
+
+        Coordinate arrays should be the same length
+            coordinates will be paired element-wise
+        """
+        coordinate_values = [coordinates[c] for c in self._axes]
+        coordinate_len = len(coordinate_values[0])
+        if not all(len(cv) == coordinate_len for cv in coordinate_values):
+            logging.error("When drawing from many distributions, all"\
+                            " coordinate arrays must be the same length") 
+        k = list(self._axes.keys())
+
+        value_dicts = list(map(lambda x: {a: x[i] for i, a in enumerate(k)}, (zip(*coordinate_values))))
+        #What a terrible line amiright?
+        distributions = [self.get_distribution(d) for d in value_dicts]
+
+        try:
+            rng = self._rng
+        except:
+            self._rng = np.random.default_rng()
+
+        normalized_values = self._rng.standard_normal((coordinate_len, n))
+        values = np.zeros((coordinate_len, n), dtype=float)
+        for index, row in enumerate(normalized_values):
+            dist = distributions[index]
+            values[index] = dist[0] + row*dist[1]
+
+        return values
+
+
 def process_samples_from_array(catalog, id_column, samples, parname):
     n_samples = len(samples.columns)-2 #Assume first column contains object IDs
     data = np.zeros((len(catalog), n_samples))
@@ -171,5 +206,3 @@ def process_samples_from_array(catalog, id_column, samples, parname):
         data[row_i] = row.drop(labels=['Unnamed: 0', 'objid'])
     dist = ArbitraryDistribution(data)
     catalog.attach_samples(parname, dist)
-
-    

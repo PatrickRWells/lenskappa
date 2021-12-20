@@ -79,7 +79,7 @@ class Survey(SkyDataSet):
         return self._region.generate_circular_tile(radius, *args, **kwargs)
 
     @abstractmethod
-    def mask_external_catalog(self, external_catalog, external_catalog_region, internal_region, return_mask = False, *args, **kwargs):
+    def mask_external_catalog(self, external_catalog, external_catalog_region, internal_region, *args, **kwargs):
         """
         Apply the bright star mask for a region inside the survey to a catalog from outside the survey region.
 

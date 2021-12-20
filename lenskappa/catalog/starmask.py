@@ -19,7 +19,7 @@ class StarMask(ABC):
         """
         self._data = data
         self._center = center
-
+    
 
     @abstractmethod
     def from_file(cls, file, center):
@@ -35,17 +35,15 @@ class StarMask(ABC):
     def get_bool_region_mask(self, catalog, region):
         """
         Same as above, except it returns the boolean mask instead of the catalog itself.
-
+        
         """
-        pass
-
+    
     @abstractmethod
-    def mask_external_catalog(self, catalog, region, return_mask = False):
+    def mask_external_catalog(self, catalog, region):
         """
         Use when masking a catalog that falls outside this bright star mask.
         Mask will be rotated onto the catalog
         """
-        pass
 
 
 class RegStarMask(StarMask):
@@ -56,9 +54,9 @@ class RegStarMask(StarMask):
         Originally built for use with HSC Survey masks
         """
         super().__init__(data, center)
-
+        
         self._convert_data_to_shapely()
-
+    
 
     @classmethod
     def from_file(cls, file, center):
@@ -78,7 +76,7 @@ class RegStarMask(StarMask):
         Converts data originally read in from a .reg file to a shapely polygon.
         Shapely is much more feature-complete and well optimized than the astropy regions package
         And while technically it only support operations on a cartesian plane, this is not a problem
-        for bright star masks that are a few arcseconds in size
+        for bright star masks that are a few arcseconds in size 
         Currently supports circles and rectangles
         """
         new_regions = []
@@ -91,7 +89,7 @@ class RegStarMask(StarMask):
 
             if regtype == regions.CircleSkyRegion:
                 new_regions.append(self._parse_shapely_circle(regdata))
-
+    
             elif regtype == regions.RectangleSkyRegion:
                 new_regions.append(self._parse_shapely_rectangle(regdata))
 
@@ -127,10 +125,10 @@ class RegStarMask(StarMask):
 
     def get_bool_region_mask(self, catalog, region):
         """
-        Given a region in the mask, and a catalog in the same region, return a
+        Given a region in the mask, and a catalog in the same region, return a 
         boolean mask for the catalog, where True indicates the object falls behind a mask
         and False indicates the object does not.
-
+        
         """
         cat_points = catalog.get_points(point_type="shapely")
         masks_in_region = [reg for reg in self._shapely_regdata if region.intersects(reg)]
@@ -140,7 +138,7 @@ class RegStarMask(StarMask):
             if not mask[index]:
                 #If they have not already been found to fall behind a mask
                 for submask in masks_in_region:
-                    #Check to see if they fall behind any of the masks
+                    #Check to see if they fall behind any of the masks                        
                     if submask.contains(point):
                         mask[index] = True
                         break
@@ -150,10 +148,10 @@ class RegStarMask(StarMask):
     def mask_catalog(self, catalog, region):
         pass
 
-    def mask_external_catalog(self, catalog, region, return_mask = False):
+    def mask_external_catalog(self, catalog, region):
         pass
 
-
+        
 class FitsStarMask(StarMask):
     pass
     # TODO
@@ -174,8 +172,10 @@ class StarMaskCollection:
         if subregions is not None:
             for subregion in subregions:
                 input_cat = self._masks[subregion].mask_catalog(input_cat)
-
+        
+        pass
+    
+    def mask_external_catalog(self, catalog, region):
         pass
 
-    def mask_external_catalog(self, catalog, region, return_mask = False):
-        pass
+    

@@ -119,7 +119,7 @@ class HSCSurvey(Survey):
         else:
             return unmasked_catalog
 
-    def mask_external_catalog(self, external_catalog, external_region, internal_region, return_mask = False, *args, **kwargs):
+    def mask_external_catalog(self, external_catalog, external_region, internal_region, *args, **kwargs):
         if not ( isinstance(external_region, SkyRegion) and isinstance(internal_region, SkyRegion) ):
             logging.error("Expected SkyRegion objects in mask_external_catalog")
             return None
@@ -134,11 +134,9 @@ class HSCSurvey(Survey):
                             "I will only be able to center them on each other")
 
         patches = self._get_patch_overlaps(internal_region)
-        new_catalog = self._starmasks.mask_external_catalog(external_catalog, external_region, internal_region, patches=patches, return_mask=return_mask, *args, **kwargs)
-        if return_mask:
-            return new_catalog
-        else:
-            return self.check_frame(internal_region, new_catalog)
+        new_catalog = self._starmasks.mask_external_catalog(external_catalog, external_region, internal_region, patches=patches, *args, **kwargs)
+        new_catalog = self.check_frame(internal_region, new_catalog)
+        return new_catalog
 
 
     def _load_tract_data(self, *args, **kwargs):
@@ -383,9 +381,9 @@ class hsc_mask(StarMaskCollection):
     def is_ready(self, *args, **kwargs):
         return np.all(list(self._is_loaded.values()))
 
-    def mask_catalog(self, catalog, region, patches, return_mask = False, *args, **kwargs):
+    def mask_catalog(self, catalog, region, patches, *args, **kwargs):
         all_masks = self._get_mask_objects_by_patch(patches, *args, **kwargs)
-        final_mask = np.ones(len(catalog), dtype=bool)
+        final_mask = np.array([True]*len(catalog))
 
         for mask in all_masks:
 
@@ -396,10 +394,8 @@ class hsc_mask(StarMaskCollection):
             except:
                 logging.error("Couldn't combine boolean masks")
                 return pd.DataFrame(columns=catalog.columns)
-        if return_mask:
-            return ~final_mask
-        else:
-            return catalog.apply_boolean_mask(~final_mask)
+
+        return catalog.apply_boolean_mask(~final_mask)
 
     def _get_mask_objects_by_patch(self, patches, *args, **kwargs):
         all_masks = []
@@ -423,15 +419,16 @@ class hsc_mask(StarMaskCollection):
         return all_masks
 
 
-    def mask_external_catalog(self, external_catalog, external_region, internal_region, return_mask = False, *args, **kwargs):
+    def mask_external_catalog(self, external_catalog, external_region, internal_region, *args, **kwargs):
         try:
             patches = kwargs['patches']
         except:
             logging.error("Expected a list of patches associated with this region")
             return
+
         external_center = external_region.center
         internal_center = internal_region.center
         catalog = external_catalog.rotate(external_center, internal_center)
-        masked_catalog = self.mask_catalog(catalog, internal_region, patches, return_mask)
+        masked_catalog = self.mask_catalog(catalog, internal_region, patches)
         return masked_catalog
         

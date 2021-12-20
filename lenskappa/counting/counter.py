@@ -165,6 +165,7 @@ class Counter(ABC):
         print("Starting weighting...")
 
         self._listen(num_samples)
+
     def _listen(self, num_samples):
         """
         Collects results from worker threads and periodically writes them to output
@@ -295,7 +296,6 @@ class RatioCounter(Counter):
             exit()
         self._field_catalog.get_distances(self._field_region.skycoord[0], unit=u.arcsec)
 
-        #Since the survey is not a Catalog object, it has a handler for filters.
 
         #Load the weights
         if weights == 'all':
@@ -347,12 +347,33 @@ class RatioCounter(Counter):
         loop_i = 0
         skipped_reference = 0
         skipped_field = 0
+
+        #First, compute the values of the weights for the lens catalog.
+        #At each weighting step, we determine if any objects are masked
+        #And then remove those objects when computing the sum.
+
+        if self._has_catalog_samples:
+            field_catalog = [self._prep_field_catalog(cat) for cat in self._sampled_catalogs]
+        else:
+            field_catalog = [self._prep_field_catalog(self._field_catalog)]
+
+
+        field_weights = {}
+        for name in self._weight_names:
+            if 'meds' not in name:
+                field_weights.update({name: [self._weightfns[name].compute_weight(c) for c in field_catalog]})
+        else:
+            wname = name.split('_')[0]
+            #I'd much rather fold these into a single funtion call
+            field_weights.update({name: [self._weightfns[wname].compute_weight(c, meds=True) for c in field_catalog]})
+
+
         while loop_i < num_samples:
 
             tile = self._reference_survey.generate_circular_tile(self._radius, *args, **kwargs)
             control_catalog = self._reference_survey.get_objects(tile, masked=self._mask, get_distance=True, dist_units = u.arcsec)
-        
-
+            field_mask = self._reference_survey.mask_external_catalog(field_catalog[0], external_region=self._field_region, internal_region=tile, return_mask = True)
+            masked_field_weights = {name: [w[field_mask] for w in weight_vals] for name, weight_vals in field_weights.items()}
 
             if len(control_catalog) == 0:
                 #Sometimes the returned catalog will be empty, in which case
@@ -361,10 +382,6 @@ class RatioCounter(Counter):
                 logging.warning("Found no objets for tile centered at {}".format(tile.skycoord[0]))
                 logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_reference, loop_i+skipped_reference+skipped_field+1))
                 continue
-            if self._has_catalog_samples:
-                field_catalog = [self._prep_field_catalog(cat, internal_region=tile) for cat in self._sampled_catalogs]
-            else:
-                field_catalog = [self._prep_field_catalog(self._field_catalog, internal_region=tile)]
             
             if np.all([empty for empty in map(lambda cat: len(cat) == 0, field_catalog)]):
                 skipped_field += 1
@@ -374,30 +391,21 @@ class RatioCounter(Counter):
                 
             control_catalog = self.apply_periodic_filters(control_catalog, 'control')
             control_weights={}
-            field_weights={}
             for name in self._weight_names:
                 if 'meds' not in name:
-                    field_weights.update({name: [self._weightfns[name].compute_weight(c) for c in field_catalog]})
                     control_weights.update({name: self._weightfns[name].compute_weight(control_catalog)})
                     
                 else:
                     wname = name.split('_')[0]
                     #I'd much rather fold these into a single funtion call
-                    field_weights.update({name: [self._weightfns[wname].compute_weight(c, meds=True) for c in field_catalog]})
                     control_weights.update({name: self._weightfns[wname].compute_weight(control_catalog, meds=True)})
 
-            row = self._parse_weight_values(field_weights, control_weights)
+            row = self._parse_weight_values(masked_field_weights, control_weights)
             loop_i += 1
             yield row
     
     def _prep_field_catalog(self, cat, *args, **kwargs):
-            if self._mask:
-                field_catalog = self._reference_survey.mask_external_catalog(cat, external_region=self._field_region, *args, **kwargs)
-
-            else:
-                field_catalog = cat
-
-            field_catalog = self.apply_periodic_filters(field_catalog, 'field')
+            field_catalog = self.apply_periodic_filters(cat, 'field')
             return field_catalog
 
 

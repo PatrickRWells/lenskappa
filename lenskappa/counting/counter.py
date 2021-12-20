@@ -362,17 +362,18 @@ class RatioCounter(Counter):
         for name in self._weight_names:
             if 'meds' not in name:
                 field_weights.update({name: [self._weightfns[name].compute_weight(c) for c in field_catalog]})
-            else:
-                wname = name.split('_')[0]
-                #I'd much rather fold these into a single funtion call
-                field_weights.update({name: [self._weightfns[wname].compute_weight(c, meds=True) for c in field_catalog]})
+        else:
+            wname = name.split('_')[0]
+            #I'd much rather fold these into a single funtion call
+            field_weights.update({name: [self._weightfns[wname].compute_weight(c, meds=True) for c in field_catalog]})
+
 
         while loop_i < num_samples:
 
             tile = self._reference_survey.generate_circular_tile(self._radius, *args, **kwargs)
             control_catalog = self._reference_survey.get_objects(tile, masked=self._mask, get_distance=True, dist_units = u.arcsec)
-            field_masks = [self._reference_survey.mask_external_catalog(fc, external_region=self._field_region, internal_region=tile, return_mask = True) for fc in field_catalog]
-            masked_field_weights = {name: [w[fm] for w,fm in zip(weight_vals, field_masks)] for name, weight_vals in field_weights.items()}
+            field_mask = self._reference_survey.mask_external_catalog(field_catalog[0], external_region=self._field_region, internal_region=tile, return_mask = True)
+            masked_field_weights = {name: [w[field_mask] for w in weight_vals] for name, weight_vals in field_weights.items()}
 
             if len(control_catalog) == 0:
                 #Sometimes the returned catalog will be empty, in which case

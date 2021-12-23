@@ -155,7 +155,10 @@ class millenium_simulation(Simulation):
         cat.add_param(z_s_par)
         self._catalog = cat
 
-    
+    def attach_dist_array(self, dist_array, target_param):
+        self._catalog.attach_dist_array(dist_array, target_param)
+
+
     def _load_catalog_files(self, directory, matched_files, z_max = -1):
         """
         The data for each of the 64 fields is broken into 1x1 deg fields
@@ -178,7 +181,7 @@ class millenium_simulation(Simulation):
         combined = pd.concat(dfs, ignore_index=True)
         ra_par = QuantCatalogParam("pos_0[rad]", 'ra', u.radian)
         dec_par = QuantCatalogParam("pos_1[rad]", "dec", u.radian)
-        z_par = QuantCatalogParam("z_spec", 'z_gal')
+        z_par = QuantCatalogParam("z_spec", "z_gal")
 
         pars = [ra_par, dec_par, z_par]
         #Re-index positions from -2deg -> 2deg to 0deg->4deg
@@ -286,6 +289,9 @@ class millenium_simulation(Simulation):
                 center = millenium_simulation.get_position_from_index(x_i, y_i)
                 region = CircularSkyRegion(SkyCoord(*center), aperture)
                 yield region
+
+    def has_samples(self, *args, **kwargs):
+        return self._catalog.has_samples(*args, **kwargs)
 
 
     def get_objects_in_region(self, region):

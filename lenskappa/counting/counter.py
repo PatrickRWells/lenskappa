@@ -9,6 +9,7 @@ import math
 import logging
 import astropy.units as u
 import atexit
+from copy import copy
 
 from lenskappa.datasets.dataset import DataSet
 from lenskappa.catalog.catalog import Catalog
@@ -476,39 +477,59 @@ class SingleCounter(Counter):
             exit()
 
 
-    def get_weights(self, weights = 'all', aperture = 120*u.arcsec, sample_type='grid', output_file = "output.csv", threads = 1, output_positions = False, *args, **kwargs):
+    def get_weights(self, weights = 'all', meds=False, aperture = 120*u.arcsec, sample_type='grid', output_file = "output.csv", threads = 1, output_positions = False, *args, **kwargs):
         self._output_fname = output_file
         self._validate_all(*args, **kwargs)
         if weights == 'all':
-            weight_fns = weighting.load_all_weights()
+            self.weightfns = weighting.load_all_weights()
         elif type(weights) is list:
-            weight_fns = weighting.load_some_weights(weights)
+            self._weightfns = weighting.load_some_weights(weights)
+
+        if meds:
+            weight_names = list(self._weightfns.keys())
+            self._weight_names = []
+            for name in weight_names:
+                self._weight_names.append(name)
+                self._weight_names.append('_'.join([name, 'meds']))
+        else:
+            self._weight_names = list(self._weightfns.keys())
 
         if sample_type == 'grid':
             print("Starting weighting...")
 
-            self._get_weights_on_grid(aperture, weight_fns, output_file, output_positions = output_positions, *args, **kwargs)
+            self._get_weights_on_grid(aperture, output_file, output_positions = output_positions, *args, **kwargs)
         
-    def _get_weights_on_grid(self,aperture, weights, output_file, output_positions = False, *args, **kwargs):
-        columns = list(weights.keys())
+    def _get_weights_on_grid(self,aperture, output_file, output_positions = False, *args, **kwargs):
+        samples = self._reference_survey.has_samples()
+        if samples and len(samples) != 1:
+            samples = False
+        columns = copy(self._weight_names)
         if output_positions:
             columns.insert(0, "ra")
             columns.insert(1, "dec")
-        df = pd.DataFrame(columns=weights.keys())
+        df = pd.DataFrame(columns=columns)
         for index, reg in enumerate(self._reference_survey.get_ciruclar_tile(aperture, *args, **kwargs)):
-            cat = self._reference_survey.get_objects_in_region(reg)
-            cat = self.apply_periodic_filters(cat, "reference")
-            row = {col: "" for col in columns}
-            for name, weightfn in weights.items():
-                weight_vals = weightfn.compute_weight(cat)
-                row[name] = weight_vals
-            if output_positions:
-                pos = reg.skycoord[0]
-                row['ra'] = pos.ra.deg
-                row['dec'] = pos.dec.deg
+            catalog = self._reference_survey.get_objects_in_region(reg)
+            if samples:
+                cat = catalog.generate_catalogs_from_samples(samples[0], *args, **kwargs)
+            else:
+                cat = [catalog]
+            
+            cat = [self.apply_periodic_filters(c, "reference") for c in cat]
+            weights = {}
+            for name in self._weight_names:
+                if 'meds' not in name:
+                    weights.update({name: [self._weightfns[name].compute_weight(c) for c in cat]})
+                    
+                else:
+                    wname = name.split('_')[0]
+                    #I'd much rather fold these into a single funtion call
+                    weights.update({name: [self._weightfns[wname].compute_weight(c, meds=True) for c in cat]})
+                
+            pos = reg.skycoord[0]
 
 
-            row = self._parse_weight_values(row)
+            row = self._parse_weight_values(weights, pos, output_positions)
             df = df.append(row, ignore_index=True)
             if index % 100 == 0:
                 print("Completed {}".format(index))
@@ -519,14 +540,21 @@ class SingleCounter(Counter):
     def _get_weight_values(self, *args, **kwargs):
         pass
 
-    def _parse_weight_values(self, row, *args, **kwargs):
-        ret_val = {}
-        for name, val in row.items():
-            try:
-                w_val = np.sum(val)
-                ret_val.update({name: w_val})
-            except:
-                ret_val.update({name: val})
-        
-        return ret_val
- 
+    def _parse_weight_values(self, weights, pos, output_positions, *args, **kwargs):
+        return_weights = {weight_name: np.zeros(len(weight_values)) for weight_name, weight_values in weights.items()}
+
+        for weight_name, weight_values in weights.items():
+            for index, value in enumerate(weight_values):
+
+                try:
+                    final_weight = float(value)
+                except:
+                    final_weight = np.sum(value)
+
+                return_weights[weight_name][index] = final_weight
+        output = pd.DataFrame(return_weights)
+        if output_positions:
+            output['ra'] = pos.ra
+            output['dec'] = pos.dec
+
+        return output

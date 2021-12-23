@@ -53,11 +53,7 @@ class QuantCatalogParam(CatalogParam):
     
     @property
     def unit(self):
-        if self._unit is not None:
-            return self._unit
-        else:
-            return False
-
+        return self._unit
     def get_values(self, cat, *args, **kwargs):
         vals = np.array(super().get_values(cat, *args, **kwargs))
         if self._is_log:

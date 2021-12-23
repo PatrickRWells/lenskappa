@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import astropy.units as u
 import logging
+from copy import copy
 
 from astropy.coordinates.sky_coordinate import SkyCoord
 from shapely import geometry
@@ -34,24 +35,26 @@ class Catalog(ABC):
     def _handle_extras(self, *args, **kwargs):
         if 'samples' in kwargs.keys() and kwargs['samples'] is not None:
             self._parameter_samples = kwargs['samples']
+        if 'dist_arrays' in kwargs.keys() and kwargs['dist_arrays'] is not None:
+            self._dist_arrays = kwargs['dist_arrays']
 
     def __getitem__(self, key):
         """
-        Allows for masking as with a usual dataframe
-        """
-        
+        Allows for selecting columns as with a usual dataframe
+        """        
         if key in self._parmap.keys():
             lookup_key = key
-            return self._parmap[lookup_key].get_values(self._cat)
+            output =  self._parmap[lookup_key].get_values(self._cat)
         elif key in self._inverse_map.keys():
             lookup_key = self._inverse_map[key]
-            return self._parmap[lookup_key].get_values(self._cat)
+            output =  self._parmap[lookup_key].get_values(self._cat)
         elif key in self._base_parmap.keys():
             lookup_key = self._base_parmap[key]
-            return self[self._base_parmap[key]]
+            output = self[self._base_parmap[key]]
         else:
             lookup_key = key
-            return self._cat[key]
+            output = self._cat[key]
+        return output
 
     def __setitem__(self, key, data):
         """
@@ -108,12 +111,11 @@ class Catalog(ABC):
 
     def apply_boolean_mask(self, mask, *args, **kwargs):
         df = self._cat.loc[self._cat[mask].index]
-        try:
-            input_samples = {key: s.apply_boolean_mask(mask) for key, s in self._parameter_samples.items()}
-        except:
-            input_samples = None
+        extras = self._get_extras(mask=mask)
+        kwargs.update(extras)
+        return self.from_dataframe(df, *args, **kwargs)
  
-        return self.from_dataframe(df, parmap=self._parmap, samples=input_samples, *args, **kwargs)
+        #return self.from_dataframe(df, parmap=self._parmap, samples=input_samples, *args, **kwargs)
 
 
     def replace_values_by_mask(self, mask, column, value):
@@ -124,12 +126,26 @@ class Catalog(ABC):
         df = self._cat.copy()
         colname = self.get_colname(column)
         df.loc[~mask, colname] = value
+        extras = self._get_extras()
         try:
-            input_points = self._points[mask]
-            return self.from_dataframe(df, parmap=self._parmap, points = input_points)
+            input_points = extras['points']
+            extras.update({'points': input_points[mask]})
+            return self.from_dataframe(df, **extras)
         except:
-            return self.from_dataframe(df, parmap=self._parmap)
+            return self.from_dataframe(df, **extras)
 
+    def _get_extras(self, mask = None, *args, **kwargs):
+
+        extras = {'parmap': self._parmap}
+        if hasattr(self, '_parameter_samples'):
+            if mask is not None:
+                input_samples = {key: s.apply_boolean_mask(mask) for key, s in self._parameter_samples.items()}
+            else:
+                input_samples = self._parameter_samples
+            extras = {'samples': input_samples}
+        if hasattr(self, "_dist_arrays"):
+            extras.update({'dist_arrays': self._dist_arrays})
+        return extras
 
     def load_params(self, input_map, *args, **kwargs):
         """
@@ -237,25 +253,31 @@ class Catalog(ABC):
         try:
             return list(self._parameter_samples.keys())
         except:
-            return False
+            try:
+                return list(self._dist_arrays.keys())
+            except:
+                return False
 
     def generate_catalogs_from_samples(self, sample_param, *args, **kwargs):
         """
         Generates N catalog objects, where N is the number of samples of a given param
         Should not actually duplicate the catalog N times. 
         """
-        samples, unit = self.get_samples(sample_param)
+        samples, unit = self._get_samples(sample_param, *args, **kwargs)
+        if not samples:
+            samples, unit = self._get_samples_from_array(*args, **kwargs)
+
         key = '_'.join([sample_param, 'sampled'])
         catalogs = []
         for sample_column in np.transpose(samples):
-            cat = self.from_dataframe(self._cat.copy(), parmap=self._parmap, *args, **kwargs)
+            cat = self.from_dataframe(self._cat.copy(), parmap=copy(self._parmap), *args, **kwargs)
             cat[key] = sample_column
             param = QuantCatalogParam(key, sample_param, unit)
             cat.add_param(param)
             catalogs.append(cat)
         return catalogs
 
-    def get_samples(self, key):
+    def _get_samples(self, key, *args, **kwargs):
         """
         Checks to see if a particular paramater has samples associated with it
         Returns the samples if it does, otherwise False
@@ -266,24 +288,59 @@ class Catalog(ABC):
             param = key
         #Need to update to handle parameter units.
         try:
-            unit = self._parmap[key].get_unit()
+            unit = self._parmap[key].unit
         except:
             unit = None
         try:
             samples = self._parameter_samples[param].get_all_samples()
             return samples, unit
         except:
-            return False
+            return False, None
 
-    def attach_distributions(self, distributions):
+    def attach_dist_array(self, dist_array, target_param):
         """
         A distribution associates a particular value of params with a particular distribution.
         For example, this allows us to draw samples from a given object at every weighting step
         rather than just generating them at the beginning of the run.
+        Currently, we can only handle one array for one parameter.
+
+        dist_aray <DistributionArray>: 
+        target_param <str>: Name of the target parameter in the catalog that the
+            array should apply to.
+
         """
-        pass
+        try:
+            vals = self[target_param]
+        except AttributeError:
+            logging.error("Paramter {} not found in catalog!".format(target_param))
 
+        payload = {target_param: {'array': dist_array}}
+        try:
+            self._dist_arrays.update(payload)
+        except:
+            self._dist_arrays = {}
+            self._dist_arrays.update(payload)
 
+    def _get_samples_from_array(self, n_samples, *args, **kwargs):
+        try:
+            dist_arrays = self._dist_arrays
+        except AttributeError:
+            logging.error("Unable to generate distributions, no"\
+                         " distribution array was attached")
+            return
+
+        if len(dist_arrays) != 1:
+            logging.error("Unable to generate distributions, no"\
+                         " only one sampled parameter is allowed")
+            return
+        target_param = list(dist_arrays.keys())[0]
+        unit = self._parmap[target_param].unit
+
+        array = dist_arrays[target_param]['array']
+        sample_params = array.params
+        coords = {name: self[name] for name in sample_params}
+        return array.draw_many(coords, n_samples), unit
+    
     @abstractmethod
     def add_subregion(self, *args, **kwargs):
         pass

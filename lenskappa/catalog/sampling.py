@@ -68,7 +68,7 @@ class DistributionArray(ABC):
         Originally, this was implemented to allow us to create artificial
         pdfs for redshifts for an object in a catalog during weighting.
         """
-    pass
+        pass
 
 
 class GaussianDistributionArray(DistributionArray):
@@ -93,8 +93,14 @@ class GaussianDistributionArray(DistributionArray):
             logging.error("Unable to init distributions object"\
                 "Expected two limits for each parameter")
             return
+        self._params = params
 
         self._axes = {p: np.linspace(*limits[i], bins[i]) for i,p in enumerate(params)}
+
+    
+    @property
+    def params(self):
+        return self._params
 
     def _declare_dists(self, *args, **kwargs):
         shape = [len(coord) for coord in self._axes.values()]
@@ -135,8 +141,12 @@ class GaussianDistributionArray(DistributionArray):
             except:
                 logging.error("Unable to attach sample")
                 return
-            index = np.searchsorted(axis, coord_val, "left")
-            indices[i] = index
+            
+            if coord_val > axis[-1]:
+                indices[i] = -1
+            else:
+                index = np.searchsorted(axis, coord_val, "left")
+                indices[i] = index
         
         return self._distributions[tuple(indices)]
 

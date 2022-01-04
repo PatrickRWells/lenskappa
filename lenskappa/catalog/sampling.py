@@ -72,11 +72,18 @@ class DistributionArray(ABC):
 
 
 class GaussianDistributionArray(DistributionArray):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, relative=True, target = None, *args, **kwargs):
         """
         A distribution array, where each distribution is a gaussian
         """
-        pass
+        self._relative = relative
+        self._target = target
+        self._validate(*args, **kwargs)
+    
+    def _validate(self, *args, **kwargs):
+        if self._relative and self._target is None:
+            logging.error("Unable to initialize sample! Sample type is relative but no target parameter was specified.")
+            return
 
     def generate_grid(self, params, limits, bins, *args, **kwargs):
         """
@@ -157,6 +164,15 @@ class GaussianDistributionArray(DistributionArray):
         Coordinates: {parameter_name: parameter_value}
         n: number of samples to draw. 
         """
+        if self._relative:
+            try:
+                target_value = coordinates[self._target]
+            except:
+                logging.error("Unable to draw samples")
+                logging.error("Target paramter {} not found in input coordinates".format(self._target))
+                return
+        else:
+            target_value = 0
 
         try:
             rng = self._rng
@@ -166,7 +182,7 @@ class GaussianDistributionArray(DistributionArray):
         dist = self.get_distribution(coordinates)
         if dist is not None:
             vals = self._rng.standard_normal(size=n)
-            samples = dist[0] + vals*dist[1]
+            samples = dist[0] + vals*dist[1] + target_value
             return samples
         else:
             logging.error("Distribution at point {} not initialized".format(coordinates))
@@ -182,6 +198,18 @@ class GaussianDistributionArray(DistributionArray):
         """
         coordinate_values = [coordinates[c] for c in self._axes]
         coordinate_len = len(coordinate_values[0])
+
+        if self._relative:
+            try:
+                target_values = coordinates[self._target]
+            except:
+                logging.error("Unable to draw samples")
+                logging.error("Target paramter {} not found in input coordinates".format(self._target))
+                return
+        else:
+            target_values = np.zeros(coordinate_len)
+
+
         if not all(len(cv) == coordinate_len for cv in coordinate_values):
             logging.error("When drawing from many distributions, all"\
                             " coordinate arrays must be the same length") 
@@ -200,7 +228,12 @@ class GaussianDistributionArray(DistributionArray):
         values = np.zeros((coordinate_len, n), dtype=float)
         for index, row in enumerate(normalized_values):
             dist = distributions[index]
-            values[index] = dist[0] + row*dist[1]
+            values[index] = dist[0] + row*dist[1] + target_values[index]
+        
+        if self._relative:
+            for index, row in enumerate(values):
+                print("{} -> {}".format(target_values[index], row))
+            exit
 
         return values
 

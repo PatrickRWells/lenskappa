@@ -481,7 +481,7 @@ class SingleCounter(Counter):
         self._output_fname = output_file
         self._validate_all(*args, **kwargs)
         if weights == 'all':
-            self.weightfns = weighting.load_all_weights()
+            self._weightfns = weighting.load_all_weights()
         elif type(weights) is list:
             self._weightfns = weighting.load_some_weights(weights)
 

@@ -123,6 +123,7 @@ class GaussianDistributionArray(DistributionArray):
             dists = self._distributions
         except:
             dists = self._declare_dists()
+        
 
         indices = np.zeros(len(self._axes), dtype=int)
         for i, (coordinate, axis) in enumerate(self._axes.items()):
@@ -133,7 +134,11 @@ class GaussianDistributionArray(DistributionArray):
                 return
             index = np.searchsorted(axis, coord_val, "left")
             indices[i] = index
-        dists[tuple(indices)] = (center, width)
+        if (center == -999) or (width == -999):
+            dists[tuple(indices)] = (0, 0)
+        
+        else:
+            dists[tuple(indices)] = (center, width)
     
     def get_distribution(self, coordinates):
 

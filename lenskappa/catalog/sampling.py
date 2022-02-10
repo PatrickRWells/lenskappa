@@ -1,4 +1,6 @@
 from abc import ABC, abstractmethod
+import enum
+from re import L
 import numpy as np
 import logging
 from copy import deepcopy
@@ -72,10 +74,11 @@ class DistributionArray(ABC):
 
 
 class GaussianDistributionArray(DistributionArray):
-    def __init__(self, relative=True, target = None, *args, **kwargs):
+    def __init__(self, relative=True, target = None, positive=False, *args, **kwargs):
         """
         A distribution array, where each distribution is a gaussian
         """
+        self._positive = positive
         self._relative = relative
         self._target = target
         self._validate(*args, **kwargs)
@@ -84,6 +87,27 @@ class GaussianDistributionArray(DistributionArray):
         if self._relative and self._target is None:
             logging.error("Unable to initialize sample! Sample type is relative but no target parameter was specified.")
             return
+
+    def add_grid(self, params, grid):
+        """
+        Params: Name of paramters
+        Grid: Output of np.meshgrid for the parameters
+        
+        """
+        if hasattr(self, '_axes'):
+            logging.error("Sampling axes have already been defined!")
+            return
+        if len(params) != len(grid):
+            logging.error("Grid and coordinate lengths do not match!")
+        self._add_grid(params, grid)
+    
+    def _add_grid(self, params, grid):
+        self._axes = {}
+        for i,p in enumerate(params):
+            vals = np.unique(grid[i])
+            vals.sort()
+            self._axes.update({p:vals})
+        
 
     def generate_grid(self, params, limits, bins, *args, **kwargs):
         """
@@ -140,6 +164,31 @@ class GaussianDistributionArray(DistributionArray):
         else:
             dists[tuple(indices)] = (center, width)
     
+    def add_distributions(self, coord_names, coordinates, centers, widths):
+        """
+        Intake distributions defined at many points in parameter space
+        coordinate_names
+        Coordinates: Meshgrid-style list of arrays
+        Centers: The centers (biases) of the distributions, should have same shape as coordinate arrays
+        Widths: The widths of the distributions
+
+
+        """
+        self.add_grid(coord_names, coordinates)
+        all_vals = coordinates + [centers, widths]
+        stack = np.stack(all_vals, axis=-1)
+        for row in stack:
+            self._add_distributions(coord_names, row)
+        
+    def _add_distributions(self, coord_names, row, *args, **kwargs):
+        for _a in row:
+            if _a.ndim > 1:
+                self._add_distributions(row, *args, **kwargs)
+            else:
+                coords = _a[:-2]
+                vals = _a[-2:]
+                self.add_distribution({n: coords[i] for i,n in enumerate(coord_names)}, vals[0], vals[1])
+
     def get_distribution(self, coordinates):
 
         """
@@ -233,15 +282,26 @@ class GaussianDistributionArray(DistributionArray):
         values = np.zeros((coordinate_len, n), dtype=float)
         for index, row in enumerate(normalized_values):
             dist = distributions[index]
-            values[index] = dist[0] + row*dist[1] + target_values[index]
+            vals =  dist[0] + row*dist[1] + target_values[index]
+            if self._positive:
+                self._check_positive(vals, dist, target_values[index], value_dicts[index])
+            values[index] = vals
         
-        if self._relative:
-            for index, row in enumerate(values):
-                print("{} -> {}".format(target_values[index], row))
-            exit
-
         return values
 
+    def _check_positive(self, row, dist, target, v):
+        if not np.any(row < 0.0):
+            return
+        else:
+            if np.all(row < 0.0):
+                self.add_distribution(v, dist[0]/2.0, dist[1])
+                dist = self.get_distribution(v)
+            negative = np.where(row < 0.0)
+            indices = negative[0]
+            s = self._rng.standard_normal(len(indices))
+            for i1, index in enumerate(indices):
+                row[index] = dist[0] + s[i1]*dist[1] + target
+            self._check_positive(row, dist, target,v )
 
 def process_samples_from_array(catalog, id_column, samples, parname):
     n_samples = len(samples.columns)-2 #Assume first column contains object IDs

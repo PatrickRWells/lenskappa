@@ -133,7 +133,7 @@ class millenium_simulation(Simulation):
             logging.error("Unable to reshape kappa data into a 4096x4096 array")
             raise
 
-    def load_catalogs_by_field(self, x, y, z_s = -1):
+    def load_catalogs_by_field(self, x, y, z_s = -1, params = []):
         """
         Loads catalogs for the field given by x,y
         Catalogs are expected to be added to the datamanger
@@ -150,7 +150,7 @@ class millenium_simulation(Simulation):
         elif len(matched_files) < 16:
             logging.error("Not enough catalog files found for index {} and {}".format(x,y))
             return
-        cat = self._load_catalog_files(catalog_directory, matched_files, z_max=z_s)
+        cat = self._load_catalog_files(catalog_directory, matched_files, z_max=z_s, params = params)
         z_s_par = SingleValueParam("z_s", z_s)
         cat.add_param(z_s_par)
         self._catalog = cat
@@ -159,7 +159,7 @@ class millenium_simulation(Simulation):
         self._catalog.attach_dist_array(dist_array, target_param)
 
 
-    def _load_catalog_files(self, directory, matched_files, z_max = -1):
+    def _load_catalog_files(self, directory, matched_files, z_max = -1, params = []):
         """
         The data for each of the 64 fields is broken into 1x1 deg fields
         And each of those has their own catalog. Here, we load them
@@ -183,7 +183,7 @@ class millenium_simulation(Simulation):
         dec_par = QuantCatalogParam("pos_1[rad]", "dec", u.radian)
         z_par = QuantCatalogParam("z_spec", "z_gal")
 
-        pars = [ra_par, dec_par, z_par]
+        pars = [ra_par, dec_par, z_par] + params
         #Re-index positions from -2deg -> 2deg to 0deg->4deg
         combined['pos_0[rad]'] += (2.0*u.degree).to(u.radian).value
         combined['pos_1[rad]'] += (2.0*u.degree).to(u.radian).value

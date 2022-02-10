@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import enum
 from re import L
+from matplotlib.pyplot import grid
 import numpy as np
 import logging
 from copy import deepcopy
@@ -99,6 +100,7 @@ class GaussianDistributionArray(DistributionArray):
             return
         if len(params) != len(grid):
             logging.error("Grid and coordinate lengths do not match!")
+        self._params = params
         self._add_grid(params, grid)
     
     def _add_grid(self, params, grid):
@@ -177,6 +179,7 @@ class GaussianDistributionArray(DistributionArray):
         self.add_grid(coord_names, coordinates)
         all_vals = coordinates + [centers, widths]
         stack = np.stack(all_vals, axis=-1)
+        #print(stack.shape)
         for row in stack:
             self._add_distributions(coord_names, row)
         

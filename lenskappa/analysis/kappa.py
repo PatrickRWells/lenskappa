@@ -1,3 +1,4 @@
+from asyncio import queues
 from numpy.core.numeric import full
 import pandas as pd
 import os
@@ -9,7 +10,104 @@ from lenskappa.datasets.surveys.ms.ms import millenium_simulation
 import astropy.units as u
 from scipy import stats
 import math
-import multiprocess
+import multiprocess as mp
+
+def compute_histogram_range(combs, bins_, normalized_weights, obs_centers, obs_widths, distances, kappas, queue, *args, **kwargs):
+        keys = list(bins_.keys())
+        first = False
+        for index, comb in enumerate(combs):
+            distance = []
+            masks = []
+            for i, key in enumerate(comb):
+                bin = bins_[keys[i]][key]
+                masks.append(bin['mask'])
+                distance.append(bin['distance'])
+                
+            master_mask = np.all(masks, axis=0)
+            if np.any(master_mask):
+                if not first:
+                    hist,bins = compute_single_histogram(normalized_weights, obs_centers, obs_widths, master_mask, distances=distance, kappas=kappas, *args, **kwargs)
+                    first = True
+                else:
+                    dhist,bins = compute_single_histogram(normalized_weights, obs_centers, obs_widths, master_mask, distances=distance, kappas=kappas, *args, **kwargs)
+                    hist += dhist
+            else:
+                pass
+
+        queue.put(bins, hist)
+
+def compute_single_histogram(ms_weights, centers, widths, mask,
+                            distances, kappas, min_kappa = -0.2, max_kappa = 1.0, kappa_bins=2000, *args, **kwargs):
+        """
+        Computes the historgram for a given n-dimensional bin output by get_bin_combos
+        
+        """
+        
+        gauss = stats.norm(0,1)
+        #We weight the values based on their distance from the center of the
+        #distribution.
+
+        data = ms_weights[mask]
+        #Get the weights that are in this bin
+        
+
+
+        fields = data['field'].unique()
+        kappas = get_kappa_values(kappas, fields, *args, **kwargs)
+        #Get the kappa values for all the fields (large 4deg x 4deg regions) found
+        #in this subsample
+        kappa_data = np.zeros(len(data))
+        gauss_factor = 1.0
+        for distance in distances:
+            #Compute a gaussian factor for each weight being considered
+            #Depending on its fractional distance from the center
+            #PW: this should probably be moved to the get_bin_combos function
+            #for clarity.
+            gauss_factor *= gauss.pdf(distance)
+
+        for val in data.field.unique():
+            running_index = 0
+
+            field_data = data[data.field == val]
+            kappa_data_temp = np.zeros(len(field_data))
+            for index,row in field_data.iterrows():
+                indices = millenium_simulation.get_index_from_position(row.ra*u.deg, row.dec*u.deg)
+                kappa_data_temp[running_index] = kappas[row.field][indices[0],indices[1]]
+                running_index += 1
+    
+        running_index = 0
+        for index, row in data.iterrows(): #Iterate over the fields being considered
+            indices = millenium_simulation.get_index_from_position(row.ra*u.deg, row.dec*u.deg)
+            #Find the index of the associated kappa point
+            kappa_data[running_index] = kappas[row.field][indices[0],indices[1]]
+            #Get the kappa value at that point
+            running_index += 1
+            for weight_name, weight_center in centers.items():
+                weight_val = row[weight_name]
+        #Create a histogram of the retrieved kappa values
+        hist = np.histogram(kappa_data, bins=kappa_bins, range=(min_kappa, max_kappa))
+
+        #Histogram is weighted by the distance from the center of the distribution
+        #As well as the number of fields found
+        return hist[0]*gauss_factor/len(data), hist[1]
+
+def get_kappa_values(kappas, fields, *args, **kwargs):
+
+    """
+    Gets kappa values for a given subset of the 64 millenium simulation fields
+    fields: list of (x,y) tuples, where x,y = [0,7]
+    
+    """
+
+    outputs = {}
+    for field in fields:
+        outputs.update({field: kappas._kappa_values[field]})
+
+    return outputs
+
+
+
+
 
 class Kappa:
 
@@ -233,7 +331,7 @@ class Kappa:
         #As well as the number of fields found
         return hist[0]*gauss_factor/len(data), hist[1]
 
-    def compute_kappa_pdf(self, obs_centers, obs_widths, cwidth=2, bin_size = 1, min_kappa = -0.2, max_kappa = 1.0, kappa_bins=2000, *args, **kwargs):
+    def compute_kappa_pdf(self, obs_centers, obs_widths, cwidth=2, bin_size = 1, min_kappa = -0.2, max_kappa = 1.0, kappa_bins=2000, nthreads=2, *args, **kwargs):
         #Compute and combine histograms for each bin into a single PDF for kappa
         print("Normalizing")
         normalized_weights = self.normalize_weights(list(obs_centers.keys()))
@@ -251,111 +349,25 @@ class Kappa:
         nperthread = math.floor(num_combs/nthreads)
         thread_bins = [i*nperthread for i in range(nthreads)]
         thread_bins.append(num_combs)
+        processes = []
+        queue = mp.Queue()
         for i, b in enumerate(thread_bins[:-1]):
-            p = multiprocess.Process(target=compute_histogram_range, args=(combs[b:thread_bins[i+1]], bins_[b:thread_bins[i+1]], normalized_weights, obs_centers, obs_widths))
+            p = mp.Process(target=compute_histogram_range, args = (combs[b:thread_bins[i+1]],bins_[b:thread_bins[i+1]],normalized_weights, obs_centers, obs_widths, self._kappa_values,queue))
+            p.start()
+            p.append(processes)
+        
+        for p in processes:
+            p.join()
+        
+        hists = [queue.get() for _ in range(len(processes))]
+        bins = hists[0][1]
+        hist = hists[0][0]
+        for item in hists[1:]:
+            hist += item[0]
+        
 
-        for index, comb in enumerate(combs):
-            if index%1000 == 0:
-                print("Completed {} out of {} histograms".format(index, num_combs))
-            
-            distance = []
-            masks = []
-            for i, key in enumerate(comb):
-                bin = bins_[keys[i]][key]
-                masks.append(bin['mask'])
-                distance.append(bin['distance'])
-                
-            master_mask = np.all(masks, axis=0)
-            if np.any(master_mask):
-                if not first:
-                    hist,bins = self.compute_histogram(normalized_weights, obs_centers, obs_widths, master_mask, distances=distance, *args, **kwargs)
-                    first = True
-                else:
-                    dhist,bins = self.compute_histogram(normalized_weights, obs_centers, obs_widths, master_mask, distances=distance, *args, **kwargs)
-                    hist += dhist
-            else:
-                pass
 
         return bins, hist
-
-def compute_histogram_range(combs, bins_, normalized_weights, obs_centers, obs_widths, distances, *args, **kwargs):
-        keys = list(bins_.keys())
-        first = False
-        for index, comb in enumerate(combs):
-            distance = []
-            masks = []
-            for i, key in enumerate(comb):
-                bin = bins_[keys[i]][key]
-                masks.append(bin['mask'])
-                distance.append(bin['distance'])
-                
-            master_mask = np.all(masks, axis=0)
-            if np.any(master_mask):
-                if not first:
-                    hist,bins = compute_single_histogram(normalized_weights, obs_centers, obs_widths, master_mask, distances=distance, *args, **kwargs)
-                    first = True
-                else:
-                    dhist,bins = compute_single_histogram(normalized_weights, obs_centers, obs_widths, master_mask, distances=distance, *args, **kwargs)
-                    hist += dhist
-            else:
-                pass
-
-        return bins, hist
-
-def compute_single_histogram(ms_weights, centers, widths, mask, 
-                            distances, min_kappa = -0.2, max_kappa = 1.0, kappa_bins=2000, *args, **kwargs):
-        """
-        Computes the historgram for a given n-dimensional bin output by get_bin_combos
-        
-        """
-        
-        gauss = stats.norm(0,1)
-        #We weight the values based on their distance from the center of the
-        #distribution.
-
-        data = ms_weights[mask]
-        #Get the weights that are in this bin
-        
-
-
-        fields = data['field'].unique()
-        kappas = self.get_kappa_values(fields, *args, **kwargs)
-        #Get the kappa values for all the fields (large 4deg x 4deg regions) found
-        #in this subsample
-        kappa_data = np.zeros(len(data))
-        gauss_factor = 1.0
-        for distance in distances:
-            #Compute a gaussian factor for each weight being considered
-            #Depending on its fractional distance from the center
-            #PW: this should probably be moved to the get_bin_combos function
-            #for clarity.
-            gauss_factor *= gauss.pdf(distance)
-
-        for val in data.field.unique():
-            running_index = 0
-
-            field_data = data[data.field == val]
-            kappa_data_temp = np.zeros(len(field_data))
-            for index,row in field_data.iterrows():
-                indices = millenium_simulation.get_index_from_position(row.ra*u.deg, row.dec*u.deg)
-                kappa_data_temp[running_index] = kappas[row.field][indices[0],indices[1]]
-                running_index += 1
-    
-        running_index = 0
-        for index, row in data.iterrows(): #Iterate over the fields being considered
-            indices = millenium_simulation.get_index_from_position(row.ra*u.deg, row.dec*u.deg)
-            #Find the index of the associated kappa point
-            kappa_data[running_index] = kappas[row.field][indices[0],indices[1]]
-            #Get the kappa value at that point
-            running_index += 1
-            for weight_name, weight_center in centers.items():
-                weight_val = row[weight_name]
-        #Create a histogram of the retrieved kappa values
-        hist = np.histogram(kappa_data, bins=kappa_bins, range=(min_kappa, max_kappa))
-
-        #Histogram is weighted by the distance from the center of the distribution
-        #As well as the number of fields found
-        return hist[0]*gauss_factor/len(data), hist[1]
 
 
 if __name__ == "__main__":

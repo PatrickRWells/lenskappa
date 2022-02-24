@@ -12,18 +12,21 @@ from scipy import stats
 import math
 import multiprocess as mp
 
-def compute_histogram_range(combs, bins_, normalized_weights, obs_centers, obs_widths, distances, kappas, queue, tnum, *args, **kwargs):
+def compute_histogram_range(combs, bins_, bin_range, normalized_weights, obs_centers, obs_widths, distances, kappas, queue, tnum, *args, **kwargs):
         keys = list(bins_.keys())
         first = False
-        num = len(combs)
+        thread_combs = combs[bin_range[0]: bin_range[1]]
+        thread_bins = bins_[bin_range[0]: bin_range[1]]
+        num = len(thread_combs)
+
         print("Thread {} got {} combinations".format(tnum, num))
-        for index, comb in enumerate(combs):
+        for index, comb in enumerate(thread_combs):
             if index%(math.floor(num/10)) == 0:
                 print("Thread {} completed {} of {} histograms".format(tnum, index, num))
             distance = []
             masks = []
             for i, key in enumerate(comb):
-                bin = bins_[keys[i]][key]
+                bin = thread_bins[keys[i]][key]
                 masks.append(bin['mask'])
                 distance.append(bin['distance'])
                 
@@ -356,7 +359,7 @@ class Kappa:
         queue = mp.Queue()
         print("Delegating to {} threads".format(nthreads))
         for i, b in enumerate(thread_bins[:-1]):
-            p = mp.Process(target=compute_histogram_range, args = (combs[b:thread_bins[i+1]],bins_[b:thread_bins[i+1]],normalized_weights, obs_centers, obs_widths, self._kappa_values,queue, i))
+            p = mp.Process(target=compute_histogram_range, args = (combs,bins_, (b, thread_bins[i+1], normalized_weights, obs_centers, obs_widths, self._kappa_values,queue, i))
             p.start()
             p.append(processes)
         

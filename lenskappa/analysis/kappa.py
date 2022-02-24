@@ -12,10 +12,14 @@ from scipy import stats
 import math
 import multiprocess as mp
 
-def compute_histogram_range(combs, bins_, normalized_weights, obs_centers, obs_widths, distances, kappas, queue, *args, **kwargs):
+def compute_histogram_range(combs, bins_, normalized_weights, obs_centers, obs_widths, distances, kappas, queue, tnum, *args, **kwargs):
         keys = list(bins_.keys())
         first = False
+        num = len(combs)
+        print("Thread {} got {} combinations".format(tnum, num))
         for index, comb in enumerate(combs):
+            if index%(math.floor(num/10)) == 0:
+                print("Thread {} completed {} of {} histograms".format(tnum, index, num))
             distance = []
             masks = []
             for i, key in enumerate(comb):
@@ -345,14 +349,14 @@ class Kappa:
 
         num_combs = len(combs)
         #replace this with a multithreaded version
-        nthreads = 2
         nperthread = math.floor(num_combs/nthreads)
         thread_bins = [i*nperthread for i in range(nthreads)]
         thread_bins.append(num_combs)
         processes = []
         queue = mp.Queue()
+        print("Delegating to {} threads".format(nthreads))
         for i, b in enumerate(thread_bins[:-1]):
-            p = mp.Process(target=compute_histogram_range, args = (combs[b:thread_bins[i+1]],bins_[b:thread_bins[i+1]],normalized_weights, obs_centers, obs_widths, self._kappa_values,queue))
+            p = mp.Process(target=compute_histogram_range, args = (combs[b:thread_bins[i+1]],bins_[b:thread_bins[i+1]],normalized_weights, obs_centers, obs_widths, self._kappa_values,queue, i))
             p.start()
             p.append(processes)
         

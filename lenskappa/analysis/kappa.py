@@ -10,6 +10,7 @@ import astropy.units as u
 from scipy import stats
 
 class Kappa:
+
     def __init__(self) -> None:
         pass
 
@@ -24,7 +25,7 @@ class Kappa:
 
         """
 
-        files = [f for f in os.listdir(folder) if f.endswith(format)]
+        files = [f for f in os.listdir(folder) if f.endswith(format) and not f.startswith('.')]
         dfs = []
         for f in files:
             field = re.search(r"[0-9]_[0-9]", f)
@@ -65,11 +66,11 @@ class Kappa:
         #A bin width of 1 corresponds to increasing/decrease this median_n_gals by 1
         full_width = obs_width*median_n_gals*cwidth
         bin_width = bin_size
-
+        nbins = int(2*cwidth/bin_size)
         center = median_n_gals*obs_center
+        bins = [(center - cwidth)+i*bin_size for i in range(nbins+1)]
 
-        bins = [(center - full_width/2 + i*bin_width) for i in range(int(full_width/bin_width) + 1)]
-
+        #bins = [(center - full_width/2 + i*bin_width) for i in range(int(full_width/bin_width) + 1)]
         vals = {}
         bin_counts = np.zeros(len(bins))
         for ix, i in enumerate(bins):
@@ -77,13 +78,12 @@ class Kappa:
             bin_counts[ix] = len(normalized_ms_weights[mask])
             vals.update({i: {'mask': mask, 'distance': (i-center)/center}})
             bin_counts[ix] = len(normalized_ms_weights[mask])
-            import matplotlib.pyplot as plt
         return vals
 
     def get_bins(self, normalized_ms_weights, obs_centers, obs_widths, cwidth = 2, bin_size = 1, *args, **kwargs):
 
         """
-        Gets all the bins given an set of weights, the normalized ms weights, and 
+        Gets all the bins given a set of weights, the normalized ms weights, and 
         the distributions from the observed field.
         Number of weights scales as a^n, where n is the number of weights.
 
@@ -114,25 +114,13 @@ class Kappa:
         """
 
         
-
         bin_keys = []
         for key, data in bins.items():
             bin_keys.append(list(data.keys()))
 
 
         combs = list(itertools.product(*bin_keys))
-        keys = list(bins.keys())
-        output = {}
-        combo_counts = np.zeros(len(combs))
-        for index_1, c in enumerate(combs):
-            distances = np.zeros(len(keys))
-            master_mask = np.ones(len(self._weights), dtype=bool)
-            for index_2, val in enumerate(c):
-                mask = bins[keys[index_2]][val]['mask']
-                master_mask = master_mask&mask
-                distances[index_2] = bins[keys[index_2]][val]['distance']
-            output.update({c: {'mask': master_mask, 'distances': distances}})
-        return output
+        return combs
 
     def get_kappa_values(self, fields, *args, **kwargs):
 
@@ -204,7 +192,7 @@ class Kappa:
         
 
 
-        fields = data[mask]['field'].unique()
+        fields = data['field'].unique()
         kappas = self.get_kappa_values(fields, *args, **kwargs)
         #Get the kappa values for all the fields (large 4deg x 4deg regions) found
         #in this subsample
@@ -246,23 +234,35 @@ class Kappa:
 
     def compute_kappa_pdf(self, obs_centers, obs_widths, cwidth=2, bin_size = 1, min_kappa = -0.2, max_kappa = 1.0, kappa_bins=2000, *args, **kwargs):
         #Compute and combine histograms for each bin into a single PDF for kappa
+        print("Normalizing")
         normalized_weights = self.normalize_weights(list(obs_centers.keys()))
-        bins = self.get_bins(normalized_weights, obs_centers=obs_centers, obs_widths=obs_widths, cwidth=cwidth, bin_size=bin_size, *args, **kwargs)
-        combs = self.get_bin_combos(bins, cwidth, bin_size, *args, **kwargs)
-        print("Number of combinations to check {}".format(len(combs)))
-        master_mask = np.zeros(len(self._weights), bool)
+        print("Finding bins")
+        bins_ = self.get_bins(normalized_weights, obs_centers=obs_centers, obs_widths=obs_widths, cwidth=cwidth, bin_size=bin_size, *args, **kwargs)
+        keys = list(bins_.keys())
+        print("Finding bin combos")
+        combs = self.get_bin_combos(bins_, cwidth, bin_size, *args, **kwargs)
         first = False
+
+
         num_combs = len(combs)
-        for index, (bin, data) in enumerate(combs.items()):
-            if index%100 == 0:
+        for index, comb in enumerate(combs):
+            if index%1000 == 0:
                 print("Completed {} out of {} histograms".format(index, num_combs))
-            mask = data['mask']
-            if np.any(mask):
+            
+            distance = []
+            masks = []
+            for i, key in enumerate(comb):
+                bin = bins_[keys[i]][key]
+                masks.append(bin['mask'])
+                distance.append(bin['distance'])
+                
+            master_mask = np.all(masks, axis=0)
+            if np.any(master_mask):
                 if not first:
-                    hist,bins = self.compute_histogram(normalized_weights, obs_centers, obs_widths, mask, distances=data['distances'], *args, **kwargs)
+                    hist,bins = self.compute_histogram(normalized_weights, obs_centers, obs_widths, master_mask, distances=distance, *args, **kwargs)
                     first = True
                 else:
-                    dhist,bins = self.compute_histogram(normalized_weights, obs_centers, obs_widths, mask, distances=data['distances'], *args, **kwargs)
+                    dhist,bins = self.compute_histogram(normalized_weights, obs_centers, obs_widths, master_mask, distances=distance, *args, **kwargs)
                     hist += dhist
             else:
                 pass
@@ -270,7 +270,14 @@ class Kappa:
         return bins, hist
 
 
-
-
-
-
+if __name__ == "__main__":
+    import pickle
+    k = Kappa()
+    k.load_ms_weights("/Volumes/workspace/analysis/0924_final/ms/test")
+    k.load_kappa_values("/Volumes/workspace/data/ms/kappa_maps/Plane36")
+    bins, hist = k.compute_kappa_pdf({'gal': 1.061, 'oneoverr': 1.385, 'zweight': 1.014}, {'gal': 0.19, 'oneoverr': 0.29, 'zweight': 0.195}, cwidth=50, bin_size=2)
+    #bins, hist = k.compute_kappa_pdf({'gal': 1.061, 'oneoverr': 1.385}, {'gal': 0.19, 'oneoverr': 0.29}, cwidth=50, bin_size=2)
+   
+    import matplotlib.pyplot as plt
+    with open("test3.dat", 'wb') as f:
+        pickle.dump((bins[:-1], hist), f)

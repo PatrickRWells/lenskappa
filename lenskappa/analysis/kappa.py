@@ -7,6 +7,7 @@ import logging
 import itertools
 import numpy as np
 from lenskappa.datasets.surveys.ms.ms import millenium_simulation
+import random
 import astropy.units as u
 from scipy import stats
 import math
@@ -18,10 +19,10 @@ def compute_histogram_range(combs, bins_, bin_range, normalized_weights, obs_cen
         thread_combs = combs[bin_range[0]: bin_range[1]]
         num = len(thread_combs)
 
-        print("Thread {} got {} combinations".format(tnum, num))
+        logging.info("Thread {} got {} combinations".format(tnum, num))
         for index, comb in enumerate(thread_combs):
             if index%(math.floor(num/10)) == 0:
-                print("Thread {} completed {} of {} histograms".format(tnum, index, num))
+                logging.info("Thread {} completed {} of {} histograms".format(tnum, index, num))
             distance = []
             masks = []
             for i, key in enumerate(comb):
@@ -39,7 +40,7 @@ def compute_histogram_range(combs, bins_, bin_range, normalized_weights, obs_cen
                     hist += dhist
             else:
                 pass
-        print("Thread {} finished work...".format(tnum))
+        logging.info("Thread {} finished work...".format(tnum))
         queue.put((bins, hist))
 
 def compute_single_histogram(ms_weights, centers, widths, mask,
@@ -346,6 +347,9 @@ class Kappa:
         keys = list(bins_.keys())
         print("Finding bin combos")
         combs = self.get_bin_combos(bins_, cwidth, bin_size, *args, **kwargs)
+        #We shuffle the bin combinations, so that each thread gets (roughly) the same amount of work
+        random.shuffle(combs)
+
         first = False
 
         worker_threads = nthreads -1

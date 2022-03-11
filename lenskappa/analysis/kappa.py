@@ -347,7 +347,7 @@ class Kappa:
         keys = list(bins_.keys())
         print("Finding bin combos")
         combs = self.get_bin_combos(bins_, cwidth, bin_size, *args, **kwargs)
-        #We shuffle the bin combinations, so that each thread gets (roughly) the same amount of work
+        #We shuffle the bin combinations, so that each thread gets (roughly) the same amount of work    
         random.shuffle(combs)
 
         first = False
@@ -368,10 +368,10 @@ class Kappa:
             
         print("Getting histograms")
         hists = [queue.get() for _ in range(len(processes))]
-        bins = hists[0][1]
-        hist = hists[0][0]
+        bins = hists[0][0]
+        hist = hists[0][1]
         for item in hists[1:]:
-            hist += item[0]
+            hist += item[1]
 
         for i,p in enumerate(processes):
             p.join()

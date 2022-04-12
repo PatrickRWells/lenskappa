@@ -26,7 +26,7 @@ import numpy as np
 import logging
 import astropy.units as u
 from astropy.coordinates import SkyCoord
-
+import pathlib
 
 class millenium_simulation(Simulation):
 
@@ -132,6 +132,30 @@ class millenium_simulation(Simulation):
         except:
             logging.error("Unable to reshape kappa data into a 4096x4096 array")
             raise
+    
+    def load_gamma_maps(self, x: int, y: int, slice=36, filetype="binary"):
+        map_directory = self._datamanager.get_file_location({'datatype': 'gamma_maps', 'slice': str(slice)})
+        search_pattern = ".*8_{}_{}".format(str(x), str(y))
+        files = [file for file in os.listdir(map_directory) if not file.startswith('.')]
+        r = re.compile(search_pattern)
+        matched_files = list(filter(r.match, files))
+        if len(matched_files) > 1:
+            logging.error("Too many kappa files found for index {} and {}".format(x, y))
+            return
+        elif len(matched_files) == 0:
+            logging.error("No kappa files found for index {} and {}".format(x,y))
+            return
+
+        kappa_data = self._load_kappa_file(os.path.join(map_directory, matched_files[0]))
+        try:
+            all_kappa = self._kappa_data
+        except:
+            self._kappa_data = {}
+
+        self._kappa_data.update({"{}_{}".format(str(x),str(y)): kappa_data})
+
+
+
 
     def load_catalogs_by_field(self, x, y, z_s = -1, params = []):
         """
@@ -343,3 +367,45 @@ class millenium_simulation(Simulation):
         x_pix = pos_x/l_pix - 0.5
         y_pix = pos_y/l_pix -0.5
         return int(round(x_pix.value)), int(round(y_pix.value))
+    
+    @staticmethod
+    def extract_maps(input_director: pathlib.Path, output_directory: pathlib.Path) -> None:
+        """
+        Converts original .Phi files from Stefan Hilbert into kappa and gamma maps.
+        Input: directory containing original maps
+        Output: Outuput directory. Will create two subdirectories, one for kappa and one for gamma
+        """
+    
+    @staticmethod
+    def _distortion_to_convergence(mat: list) -> float:
+        """
+        Thanks to Stefan Hilbert for this solution
+        """
+        tr = mat[0] + mat[3]
+        btr = mat[1] - mat[2]
+        s = np.sign(tr)
+        kappa = 1.0 - 0.5*s*np.sqrt(tr*tr + btr*btr)
+        return kappa
+    
+    @staticmethod
+    def _distortion_to_shear(mat: list) -> tuple:
+        """
+        Thanks to Stefan Hilbert for this solution
+        """
+        a, b, c, d = mat
+        tr = a + c
+        btr = b - d
+        s = np.sign(tr)
+        dn = -0.5*s / np.sqrt(tr*tr + btr*btr)
+        g1 = dn * (a*a - b*b + c*c - d*d)
+        g2 = dn * 2 * (a*b+c*d)
+        return (g1, g2)
+
+if __name__ == "__main__":
+    path = "/Users/patrick/Plane36/GGL_los_8_0_0_N_4096_ang_4_rays_to_plane_36_f.Phi"
+    d = np.fromfile(path, np.float32)
+    m = d[:4]
+    print(millenium_simulation._distortion_to_convergence(m))
+    print(millenium_simulation._distortion_to_shear(m))
+
+

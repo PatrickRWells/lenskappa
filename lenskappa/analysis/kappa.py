@@ -11,7 +11,9 @@ import random
 import astropy.units as u
 from scipy import stats
 import math
-import multiprocess as mp
+import multiprocessing as mp
+from lenskappa.utils import SurveyDataManager
+import pathlib
 
 def compute_histogram_range(combs, bins_, bin_range, normalized_weights, obs_centers, obs_widths, kappas, queue, tnum, *args, **kwargs):
         keys = list(bins_.keys())
@@ -117,9 +119,9 @@ def get_kappa_values(kappas, fields, *args, **kwargs):
 
 
 class Kappa:
-
     def __init__(self) -> None:
-        pass
+        self._datamanager = SurveyDataManager("ms")
+
 
     def load_ms_weights(self, folder, format="csv", *args, **kwargs):
         """
@@ -205,8 +207,9 @@ class Kappa:
 
         bins = {}
         for name, center in obs_centers.items():
-            fields = self.select_fields_by_weights(normalized_ms_weights, name, center, obs_widths[name], cwidth, bin_size)
-            bins.update({name: fields})
+            if name != 'gamma':
+                fields = self.select_fields_by_weights(normalized_ms_weights, name, center, obs_widths[name], cwidth, bin_size)
+                bins.update({name: fields})
         return bins
 
     def get_bin_combos(self, bins, cwidth=4, bin_size=1, *args, **kwargs):
@@ -249,28 +252,71 @@ class Kappa:
         return outputs
 
 
-    def load_kappa_values(self, directory, *args, **kwargs):
+    def load_kappa_values(self, plane=36, *args, **kwargs):
         """
         Loads kappa values from disk
 
         Params:
         directory: Location of the kappa files
         """
+        directory = pathlib.Path(self._datamanager.get_file_location({'datatype': 'kappa_maps', 'slice': str(plane)}))
         basename="GGL_los_8_{}_N"
         #PW: This is just the basename in my copy, may be worthwhile to make this more flexible
         basepattern = "{}_{}"
         self._kappa_values = {}
-        all_files = [f for f in os.listdir(directory) if not f.startswith('.')]
+        all_files = list(f.name for f in directory.glob('*.kappa'))
         for i in range(8):
             for j in range(8):
                 key = basepattern.format(i,j)
                 id = basename.format(key)
                 fname = all_files[np.where([f.startswith(id) for f in all_files])[0][0]]
-                fpath = os.path.join(directory, fname)
+                fpath = directory / fname
                 with open (fpath, 'rb') as d:
                     data = np.fromfile(d, np.float32)
                     data = np.reshape(data, (4096,4096))
                     self._kappa_values.update({key: data})
+    
+    def attach_gamma(self, plane, catalog, *args, **kwargs):
+        print("attaching gamma")
+        gamma_directory = pathlib.Path(self._datamanager.get_file_location({'datatype': 'gamma_maps', 'slice': str(plane)}))
+        basename="GGL_los_8_{}_N"
+        #PW: This is just the basename in my copy, may be worthwhile to make this more flexible
+        basepattern = "{}_{}"
+        self._kappa_values = {}
+        gammas = np.zeros(len(catalog), np.float32)
+        all_files = list(f.name for f in gamma_directory.glob('*.gamma*'))
+        file_lists = []
+        point_lists = []
+        field_masks = []
+        for i in range(8):
+            for j in range(8):
+                print(f"{i}, {j}")
+                key = basepattern.format(i,j)
+                id = basename.format(key)
+                fnames = list(filter(lambda x: x.startswith(id), all_files))
+                if len(fnames) == 0:
+                    continue
+                if len(fnames) != 2:
+                    raise FileNotFoundError("Found not enough or too many gamma files!")
+                fpaths = [gamma_directory / fnames[0], gamma_directory / fnames[1]]
+                field_mask = catalog['field'] == key
+                field_cat = catalog[field_mask]
+                points = list(zip(field_cat.ra, field_cat.dec))
+
+                field_masks.append(field_mask)
+                file_lists.append(fpaths)
+                point_lists.append(points)
+        
+        print("getting gamma values!")
+        nthreads = kwargs.get("nthreads", 1)
+        with mp.Pool(nthreads) as p:
+            print("Getting gammas")
+            gammas_ = p.map(get_gamma_values, list(zip(file_lists, point_lists)))
+
+        for index, gamma_vals in enumerate(gammas_):
+            gammas[field_masks[index]] = gamma_vals
+        
+        catalog['gamma'] = gammas
 
     def normalize_weights(self, names, *args, **kwargs):
         """
@@ -280,7 +326,8 @@ class Kappa:
         median_n_gal = self._weights.gal.median()
         output=self._weights.copy(deep=True)
         for name in names:
-            output[name] = median_n_gal*output[name]/output[name].median()
+            if name != 'gamma':
+                output[name] = median_n_gal*output[name]/output[name].median()
         return output
 
     def compute_histogram(self, ms_weights, centers, widths, mask,
@@ -338,10 +385,16 @@ class Kappa:
         #As well as the number of fields found
         return hist[0]*gauss_factor/len(data), hist[1]
 
-    def compute_kappa_pdf(self, obs_centers, obs_widths, cwidth=2, bin_size = 1, min_kappa = -0.2, max_kappa = 1.0, kappa_bins=2000, nthreads=2, *args, **kwargs):
+    def compute_kappa_pdf(self, obs_centers, obs_widths, plane=36, cwidth=2, bin_size = 1, min_kappa = -0.2, max_kappa = 1.0, kappa_bins=2000, nthreads=2, *args, **kwargs):
         #Compute and combine histograms for each bin into a single PDF for kappa
         print("Normalizing")
         normalized_weights = self.normalize_weights(list(obs_centers.keys()))
+        self.load_kappa_values(plane)
+        if 'gamma' in obs_centers.keys():
+            normalized_weights['gamma'] = 0.0
+            print("Attaching external shear values. This may take some time")
+            self.attach_gamma(plane, normalized_weights, nthreads=nthreads)
+        print(normalized_weights)
         print("Finding bins")
         bins_ = self.get_bins(normalized_weights, obs_centers=obs_centers, obs_widths=obs_widths, cwidth=cwidth, bin_size=bin_size, *args, **kwargs)
         keys = list(bins_.keys())
@@ -380,4 +433,40 @@ class Kappa:
 
 
         print("Kappa pdf completed")
-        return bins, hist
+        return bins, hist           
+
+
+def get_gamma_values(vals, *args, **kwargs) -> np.array:
+    """
+    Gets the gamma values for a particular set of points in a particular subfield.
+    This is slow, so written as it's own function for easier threading.
+
+    Vals should be a list with these two entries (in order):
+        gamma_file: list of pathlib.Paths. Should have length 2
+        points: list of points
+    Returns:
+        gamma_values: list of gamma values at the points of interest
+    
+    """
+    if len(vals) != 2:
+        logging.error("Unable to unpack gamma values: wrong arguments!")
+        return
+    files = vals[0]
+    points = vals[1]
+    nfiles = len(files)
+    if nfiles != 2:
+        logging.error(f"Unable to unpack gamma values: Expected two files but got {nfiles}")
+        return
+    gamma_storage = np.zeros(len(points), np.float32)
+    g1 = np.fromfile(files[0], np.float32)
+    g2 = np.fromfile(files[1], np.float32)
+    g1 = np.reshape(g1, (4096, 4096))
+    g2 = np.reshape(g2, (4096, 4096))
+    g = np.sqrt(g1**2 + g2**2)
+    for index, pos in enumerate(points):
+        if index%10000 == 0:
+            print(index)
+        ix, iy = millenium_simulation.get_index_from_position(pos[0]*u.deg, pos[1]*u.deg)
+        g_val = g[ix, iy]
+        gamma_storage[index] = g_val
+    return gamma_storage

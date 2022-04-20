@@ -1,4 +1,5 @@
 from asyncio import queues
+from multiprocessing.sharedctypes import Value
 from numpy.core.numeric import full
 import pandas as pd
 import os
@@ -6,6 +7,7 @@ import re
 import logging
 import itertools
 import numpy as np
+from pyparsing import col
 from lenskappa.datasets.surveys.ms.ms import millenium_simulation
 import random
 import astropy.units as u
@@ -20,10 +22,13 @@ def compute_histogram_range(combs, bins_, bin_range, normalized_weights, obs_cen
         first = False
         thread_combs = combs[bin_range[0]: bin_range[1]]
         num = len(thread_combs)
+        if num == 0:
+            logging.critical("This thread recieved zero combinations to check!")
+            raise ValueError
 
         logging.info("Thread {} got {} combinations".format(tnum, num))
         for index, comb in enumerate(thread_combs):
-            if index%(math.floor(num/10)) == 0:
+            if index%(num/10) == 0:
                 logging.info("Thread {} completed {} of {} histograms".format(tnum, index, num))
             distance = []
             masks = []
@@ -135,6 +140,9 @@ class Kappa:
         """
 
         files = [f for f in os.listdir(folder) if f.endswith(format) and not f.startswith('.')]
+        self._rootdir = folder
+        self._ms_files = {}
+
         dfs = []
         for f in files:
             field = re.search(r"[0-9]_[0-9]", f)
@@ -144,8 +152,11 @@ class Kappa:
                 df = pd.read_csv(path)
                 df['field']=field
                 dfs.append(df)
+                self._ms_files.update({field: f})
+        
         self._weights = pd.concat(dfs, ignore_index=True)
-        self._weights.drop(columns=['Unnamed: 0'], inplace=True)
+        if 'Unnamed: 0' in self._weights.columns:
+            self._weights.drop(columns=['Unnamed: 0'], inplace=True)
 
     def select_fields_by_weights(self, normalized_ms_weights, weight='gal', obs_center = 1.0, obs_width = 0.05, cwidth=2, bin_size=1):
         """
@@ -207,9 +218,8 @@ class Kappa:
 
         bins = {}
         for name, center in obs_centers.items():
-            if name != 'gamma':
-                fields = self.select_fields_by_weights(normalized_ms_weights, name, center, obs_widths[name], cwidth, bin_size)
-                bins.update({name: fields})
+            fields = self.select_fields_by_weights(normalized_ms_weights, name, center, obs_widths[name], cwidth, bin_size)
+            bins.update({name: fields})
         return bins
 
     def get_bin_combos(self, bins, cwidth=4, bin_size=1, *args, **kwargs):
@@ -276,8 +286,9 @@ class Kappa:
                     data = np.reshape(data, (4096,4096))
                     self._kappa_values.update({key: data})
     
-    def attach_gamma(self, plane, catalog, *args, **kwargs):
+    def attach_gamma(self, plane, *args, **kwargs):
         print("attaching gamma")
+        catalog = self._weights
         gamma_directory = pathlib.Path(self._datamanager.get_file_location({'datatype': 'gamma_maps', 'slice': str(plane)}))
         basename="GGL_los_8_{}_N"
         #PW: This is just the basename in my copy, may be worthwhile to make this more flexible
@@ -290,7 +301,6 @@ class Kappa:
         field_masks = []
         for i in range(8):
             for j in range(8):
-                print(f"{i}, {j}")
                 key = basepattern.format(i,j)
                 id = basename.format(key)
                 fnames = list(filter(lambda x: x.startswith(id), all_files))
@@ -317,6 +327,16 @@ class Kappa:
             gammas[field_masks[index]] = gamma_vals
         
         catalog['gamma'] = gammas
+        self._rewrite_catalogs()
+    
+    def _rewrite_catalogs(self, *args, **kwargs):
+        cols = list(self._weights.columns)
+        cols.remove('field')
+
+        for field in self._weights['field'].unique():
+            cat = self._weights[self._weights['field'] == field]
+            path = pathlib.Path(self._rootdir) / self._ms_files[field]
+            cat.to_csv(path, index=False, columns=cols)
 
     def normalize_weights(self, names, *args, **kwargs):
         """
@@ -326,8 +346,7 @@ class Kappa:
         median_n_gal = self._weights.gal.median()
         output=self._weights.copy(deep=True)
         for name in names:
-            if name != 'gamma':
-                output[name] = median_n_gal*output[name]/output[name].median()
+            output[name] = median_n_gal*output[name]/output[name].median()
         return output
 
     def compute_histogram(self, ms_weights, centers, widths, mask,
@@ -388,13 +407,24 @@ class Kappa:
     def compute_kappa_pdf(self, obs_centers, obs_widths, plane=36, cwidth=2, bin_size = 1, min_kappa = -0.2, max_kappa = 1.0, kappa_bins=2000, nthreads=2, *args, **kwargs):
         #Compute and combine histograms for each bin into a single PDF for kappa
         print("Normalizing")
-        normalized_weights = self.normalize_weights(list(obs_centers.keys()))
-        self.load_kappa_values(plane)
+
         if 'gamma' in obs_centers.keys():
-            normalized_weights['gamma'] = 0.0
-            print("Attaching external shear values. This may take some time")
-            self.attach_gamma(plane, normalized_weights, nthreads=nthreads)
-        print(normalized_weights)
+            if 'gamma' not in self._weights.columns:
+                self._weights['gamma'] = 0.0
+                print("Attaching external shear values. This may take some time")
+                print("These values will be stored to avoid having to do this in the future")
+                self.attach_gamma(plane, nthreads=nthreads)
+            gc = obs_centers['gamma']
+            gw = obs_widths['gamma']
+            med = np.median(self._weights['gamma'])
+            if (med < 0):
+                logging.warning("Median value of external shear is negative!")
+            obs_centers['gamma'] = gc/med
+            obs_widths['gamma'] = gw/med
+
+        normalized_weights = self.normalize_weights(list(obs_centers.keys()))
+
+        self.load_kappa_values(plane)
         print("Finding bins")
         bins_ = self.get_bins(normalized_weights, obs_centers=obs_centers, obs_widths=obs_widths, cwidth=cwidth, bin_size=bin_size, *args, **kwargs)
         keys = list(bins_.keys())

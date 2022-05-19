@@ -142,7 +142,7 @@ class Catalog(ABC):
                 input_samples = {key: s.apply_boolean_mask(mask) for key, s in self._parameter_samples.items()}
             else:
                 input_samples = self._parameter_samples
-            extras = {'samples': input_samples}
+            extras.update({'samples': input_samples})
         if hasattr(self, "_dist_arrays"):
             extras.update({'dist_arrays': self._dist_arrays})
         return extras

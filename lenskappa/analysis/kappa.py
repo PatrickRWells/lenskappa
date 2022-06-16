@@ -340,7 +340,8 @@ def load_ms_weights(path: pathlib.Path, data: dict, format="csv") -> None:
         folder: location of the MS weights.
 
         """
-        files = list(path.glob("*.csv"))
+        files = path.glob("*.csv")
+        files = [f for f in files if not f.name.startswith('.')]
         ms_files = {}
         dfs = []
 

@@ -318,6 +318,9 @@ class RatioCounter(Counter):
         #If no weights were loaded, terminate
         if self._weightfns is None:
             return
+        if self._field_mask is not None:
+            self._field_catalog = self._field_mask.mask_catalog(self._field_catalog, region=self._field_region)
+            
 
         sample_param = self._field_catalog.has_samples()
         if sample_param:
@@ -362,6 +365,9 @@ class RatioCounter(Counter):
                 logging.warning("Found no objets for tile centered at {}".format(tile.skycoord[0]))
                 logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_reference, loop_i+skipped_reference+skipped_field+1))
                 continue
+            
+            if self._field_mask is not None:
+                control_catalog = self._field_mask.mask_external_catalog(control_catalog, tile, self._field_region)
             if self._has_catalog_samples:
                 field_catalog = [self._prep_field_catalog(cat, internal_region=tile) for cat in self._sampled_catalogs]
             else:
@@ -400,8 +406,6 @@ class RatioCounter(Counter):
 
             field_catalog = self.apply_periodic_filters(field_catalog, 'field')
             return field_catalog
-
-
 
     def _generate_catalog_samples(self, sample_param, *args, **kwargs):
         #At present, we can only handle one sampled param at a time

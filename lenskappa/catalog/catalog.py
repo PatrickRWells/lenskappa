@@ -264,7 +264,7 @@ class Catalog(ABC):
         Should not actually duplicate the catalog N times. 
         """
         samples, unit = self._get_samples(sample_param, *args, **kwargs)
-        if not samples:
+        if samples == False:
             samples, unit = self._get_samples_from_array(*args, **kwargs)
 
         key = '_'.join([sample_param, 'sampled'])

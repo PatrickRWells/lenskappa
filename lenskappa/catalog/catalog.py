@@ -38,6 +38,10 @@ class Catalog(ABC):
         if 'dist_arrays' in kwargs.keys() and kwargs['dist_arrays'] is not None:
             self._dist_arrays = kwargs['dist_arrays']
 
+    
+    def iterrows(*args, **kwargs):
+        return self._cat.iterrows(*args, **kwargs)
+
     def __getitem__(self, key):
         """
         Allows for selecting columns as with a usual dataframe

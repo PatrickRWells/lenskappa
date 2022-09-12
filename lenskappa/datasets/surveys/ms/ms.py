@@ -9,6 +9,11 @@ possible todo - update from "survey" to dataset
 
 """
 
+from genericpath import exists
+from importlib.resources import path
+from math import gamma
+from nis import match
+from turtle import st
 from lenskappa.spatial import CircularSkyRegion, SkyRegion
 from shapely import geometry
 
@@ -26,7 +31,9 @@ import numpy as np
 import logging
 import astropy.units as u
 from astropy.coordinates import SkyCoord
-
+import pathlib
+import multiprocessing
+from functools import partial
 
 class millenium_simulation(Simulation):
 
@@ -132,6 +139,30 @@ class millenium_simulation(Simulation):
         except:
             logging.error("Unable to reshape kappa data into a 4096x4096 array")
             raise
+    
+    def load_gamma_maps(self, x: int, y: int, slice=36, filetype="binary"):
+        map_directory = self._datamanager.get_file_location({'datatype': 'gamma_maps', 'slice': str(slice)})
+        search_pattern = ".*8_{}_{}".format(str(x), str(y))
+        files = [file for file in os.listdir(map_directory) if not file.startswith('.')]
+        r = re.compile(search_pattern)
+        matched_files = list(filter(r.match, files))
+        if len(matched_files) > 1:
+            logging.error("Too many kappa files found for index {} and {}".format(x, y))
+            return
+        elif len(matched_files) == 0:
+            logging.error("No kappa files found for index {} and {}".format(x,y))
+            return
+
+        kappa_data = self._load_kappa_file(os.path.join(map_directory, matched_files[0]))
+        try:
+            all_kappa = self._kappa_data
+        except:
+            self._kappa_data = {}
+
+        self._kappa_data.update({"{}_{}".format(str(x),str(y)): kappa_data})
+
+
+
 
     def load_catalogs_by_field(self, x, y, z_s = -1, params = []):
         """
@@ -343,3 +374,91 @@ class millenium_simulation(Simulation):
         x_pix = pos_x/l_pix - 0.5
         y_pix = pos_y/l_pix -0.5
         return int(round(x_pix.value)), int(round(y_pix.value))
+    
+def extract_maps(input_directory: pathlib.Path, output_directory: pathlib.Path, threads = 1, override = False) -> None:
+    """
+    Converts original .Phi files from Stefan Hilbert into kappa and gamma maps.
+    Input: directory containing original maps
+    Output: Outuput directory. Will create two subdirectories, one for kappa and one for gamma
+    """
+    indices = list(range(8))
+    files = [p.name for p in input_directory.glob('*.Phi')]
+    #print(files)
+    plane_re = lambda x: re.search(r'plane_\d+', x)
+    matches = [plane_re(f) for f in files]
+    planes = [int(str(m.group(0)).split("_")[1]) for m in matches]
+    if not all(p == planes[0] for p in planes):
+        print("Warning: Not all the .Phi files come from the same plane!")
+        if not override:
+            print("Set override = True to continue anyway")
+            return
+        planes = np.unique(planes)
+        print("Subdirectories will be created for each plane")
+        for p_ in planes:
+            plane_output = output_directory / f"plane_{p_}"
+            plane_output.mkdir(exist_ok=False)
+            matching_files = filter(files, lambda x: f"plane_{p_}" in x)
+            for f in matching_files:
+                os.symlink(input_directory / f, plane_output / f)
+            millenium_simulation.extract_maps(plane_output, plane_output)
+            for f in matching_files:
+                pathlib.unlink(plane_output / f)
+            
+            print("Done!")
+            return
+    if(len(files)) != 64:
+        print("Warning: Missing files for this plane!")
+
+    kappa_output = output_directory / "kappa"
+    gamma_output = output_directory / "gamma"
+    kappa_output.mkdir(exist_ok = True)
+    gamma_output.mkdir(exist_ok = True)
+    print("Extracting convergence and shear information, this will take some time")
+    if threads == 1:
+        print("If you like, you can speed this up by chanigng the \"threads\" parameter")
+    if len(files) < threads:
+        threads = len(files)
+    
+    with multiprocessing.Pool(threads) as pool:
+        f = partial(_extract_single_file, input_dir = input_directory, kappa_output = kappa_output, gamma_output = gamma_output)
+        pool.map(f, files)
+
+
+def _extract_single_file(f, input_dir, kappa_output, gamma_output):
+    print(f"Extracting file {f}")
+    data = np.fromfile(input_dir / f, np.float32)
+    kappas = np.ndarray((4096, 4096), np.float32)        
+    gamma1 = np.ndarray((4096, 4096), np.float32)        
+    gamma2 = np.ndarray((4096, 4096), np.float32)
+    for i in range(4096):
+        if i%1000 == 0:
+            print(f"File {f}: extracted {i}/4096 points")
+        for j in range(4096):
+            start = 4*4096*i + 4*j
+            m = data[start: start+4]
+            k_, g1_, g2_ = _extract_single_matrix(m)
+            kappas[i,j]  = k_
+            gamma1[i,j] = g1_
+            gamma2[i,j] = g2_
+    fname = pathlib.Path(f).stem
+    kappa_out = kappa_output / ".".join([fname, 'kappa'])
+
+    g1_out = gamma_output / ".".join([fname, 'gamma_1'])
+    g2_out = gamma_output / ".".join([fname, 'gamma_2'])
+    kappas.tofile(kappa_out)
+    gamma1.tofile(g1_out)
+    gamma2.tofile(g2_out)
+    print(f"Finished extracting file{f}")
+
+def _extract_single_matrix(mat: list) -> tuple:
+    a,b,c,d = mat
+    tr = a + c
+    btr = b - d
+    s = np.sign(tr)
+    hyp = np.sqrt(tr*tr + btr*btr)
+    kappa = kappa = 1.0 - 0.5*s*hyp
+
+    dn = -0.5*s / hyp
+    g1 = dn * (a*a - b*b + c*c - d*d)
+    g2 = dn * 2 * (a*b+c*d)
+    return kappa, g1, g2

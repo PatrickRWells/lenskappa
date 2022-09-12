@@ -264,7 +264,7 @@ class Catalog(ABC):
         Should not actually duplicate the catalog N times. 
         """
         samples, unit = self._get_samples(sample_param, *args, **kwargs)
-        if not samples:
+        if samples == False:
             samples, unit = self._get_samples_from_array(*args, **kwargs)
 
         key = '_'.join([sample_param, 'sampled'])
@@ -564,14 +564,16 @@ class SkyCatalog2D(Catalog2D):
         if len(self) > 30000:
             logging.error("Tried to rotate this catalog, but its too big!")
             return
+        
         coords = self.get_skypoints()
         separations = original.separation(coords)
         pas = original.position_angle(coords)
         new_coords = new.directional_offset_by(pas, separations)
 
         new_df = self._cat.copy()
-        new_df[self._parmap['ra']] = new_coords.ra.degree
-        new_df[self._parmap['dec']] = new_coords.dec.degree
+        new_df[self._parmap['ra'].col] = new_coords.ra.degree
+        new_df[self._parmap['dec'].col] = new_coords.dec.degree
+
         new_catalog = self.from_dataframe(new_df, parmap=self._parmap)
         new_catalog._skypoints = new_coords
         return new_catalog

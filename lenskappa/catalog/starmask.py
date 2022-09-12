@@ -60,9 +60,9 @@ class RegStarMask(StarMask):
 
     @classmethod
     def from_file(cls, file, center):
-        import regions
+        from regions import Regions
         try:
-            regdata = regions.read_ds9(file)
+            regdata = Regions.read(file, format="ds9")
         except Exception as e:
             print(e)
             logging.error("Unable to read maskfile {}\n"\
@@ -146,10 +146,15 @@ class RegStarMask(StarMask):
         return mask
 
     def mask_catalog(self, catalog, region):
-        pass
+        """
+        Mask a catalog. Does NOT check that the catalog and mask actually fall in the same region!
+        """
+        regmask = self.get_bool_region_mask(catalog, region)
+        return catalog.apply_boolean_mask(~regmask)
 
-    def mask_external_catalog(self, catalog, region):
-        pass
+    def mask_external_catalog(self, catalog, catalog_region, target_region):
+        catalog = catalog.rotate(catalog_region.center, target_region.center)
+        return self.mask_catalog(catalog, target_region)
 
         
 class FitsStarMask(StarMask):

@@ -72,7 +72,7 @@ class ColumnLimitFilter(ColumnFilter):
         if np.all(filter):
             return catalog
         else:
-            return catalog.apply_boolean_mask(filter)
+            return catalog[filter]
     
 
 class MaxValueFilter(ColumnLimitFilter):

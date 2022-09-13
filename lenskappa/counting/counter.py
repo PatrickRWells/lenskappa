@@ -11,19 +11,21 @@ import astropy.units as u
 import atexit
 from copy import copy
 
-from lenskappa.datasets.dataset import DataSet
-from lenskappa.catalog.catalog import Catalog
-from lenskappa.spatial import Region
 from lenskappa.weighting import weighting
 from lenskappa.datasets.surveys.survey import Survey
 from lenskappa.utils.multithreading import MultiThreadObject
+from lenskappa.catalog import rotate
 
-
+from heinlein.dataset import Dataset
+from heinlein.dtypes.catalog import Catalog
+from heinlein.region import BaseRegion
 class Counter(ABC):
 
-    def __init__(self, comparison_dataset: DataSet, mask=True, *args, **kwargs):
+    def __init__(self, comparison_dataset: Dataset, comparison_region: BaseRegion, mask=True, *args, **kwargs):
         self._reference_survey = comparison_dataset
         self._mask = mask
+        self._comparison_region = comparison_region
+        self._weight_params = {}
         """
         Base class for running the weighted number counts.
         Requires two inputs
@@ -166,6 +168,7 @@ class Counter(ABC):
         print("Starting weighting...")
 
         self._listen(num_samples)
+
     def _listen(self, num_samples):
         """
         Collects results from worker threads and periodically writes them to output
@@ -222,17 +225,22 @@ class Counter(ABC):
         weights.to_csv(self._output_fname)
 
 
-
+    def add_weight_params(self, params):
+        self._weight_params.update(params)
+        
 
 
 
 class RatioCounter(Counter):
 
-    def __init__(self, field_catalog, comparison_dataset, region: Region, mask=True, field_mask = None, *args, **kwargs):
-        self._field_catalog = field_catalog
-        self._field_mask = field_mask
-        self._field_region = region
-        super().__init__(comparison_dataset, mask, *args, **kwargs)
+    def __init__(self, field_data, comparison_dataset, lens_region: BaseRegion, comparison_region: BaseRegion, mask=True, *args, **kwargs):
+        self._field_catalog = field_data['catalog']
+        if mask:
+            self._field_mask = field_data['mask']
+        else:
+            self._field_mask = None
+        self._field_region = lens_region
+        super().__init__(comparison_dataset, comparison_region, mask, *args, **kwargs)
 
     def __getstate__(self):
         # Added because python 3.8 has some weird issues passing objects to 
@@ -251,12 +259,12 @@ class RatioCounter(Counter):
         if not isinstance(self._field_catalog, Catalog):
             self._valid = False
             logging.error("Expected a catalog.Catalog object for the lens catalog")
-        if not isinstance(self._reference_survey, Survey):
+        if not isinstance(self._reference_survey, Dataset):
             logging.error("Expected a Survey object for the control field")
             self._valid = False
 
-        if not isinstance(self._field_region, Region):
-            logging.error("Expected a Region object for the lens field region")
+        if not isinstance(self._field_region, BaseRegion):
+            logging.error("Expected a BaseRegion object for the lens field region")
             self._valid = False
 
         if os.path.exists(self._output_fname):
@@ -273,8 +281,9 @@ class RatioCounter(Counter):
                 exit()
 
         #Remove all objects from the field catalog that fall outside the region
-        self._field_center, self._radius = self._field_region.skycoord
-        self._field_catalog = self._field_catalog.get_objects_in_region(self._field_region)
+        self._field_center = self._field_region.coordinate
+        self._radius = self._field_region.radius
+        self._field_catalog = self._field_catalog.get_data_from_region(self._field_region)
 
 
 
@@ -294,15 +303,18 @@ class RatioCounter(Counter):
         self._validate_all(*args, **kwargs)
         if not self._valid:
             exit()
-        self._field_catalog.get_distances(self._field_region.skycoord[0], unit=u.arcsec)
+        
+        coords = self._field_catalog.coords
+        distances = self._field_center.separation(coords).to(u.arcsec)
+        self._field_catalog['r'] = distances
 
         #Since the survey is not a Catalog object, it has a handler for filters.
 
         #Load the weights
         if weights == 'all':
-            self._weightfns = weighting.load_all_weights()
+            self._weightfns = weighting.load_all_weights(self._weight_params)
         elif type(weights) == list:
-            self._weightfns = weighting.load_some_weights(weights)
+            self._weightfns = weighting.load_some_weights(weights, self._weight_params)
 
         #Initialize the dataframe for storage
         if meds:
@@ -319,15 +331,7 @@ class RatioCounter(Counter):
         if self._weightfns is None:
             return
         if self._field_mask is not None:
-            self._field_catalog = self._field_mask.mask_catalog(self._field_catalog, region=self._field_region)
-            
-
-        sample_param = self._field_catalog.has_samples()
-        if sample_param:
-            self._has_catalog_samples = True
-            self._generate_catalog_samples(sample_param)
-        else:
-            self._has_catalog_samples = False
+            self._field_catalog = self._field_catalog[self._field_mask]
 
         #Handle multithreaded runs
         if threads > 1:
@@ -337,7 +341,7 @@ class RatioCounter(Counter):
         else:
             print("Starting weighting...")
             for index, row in enumerate(self._get_weight_values(num_samples)):
-                weight_data = weight_data.append(row, ignore_index=True)
+                weight_data = pd.concat([weight_data, row], ignore_index=True)
                 if index and index % (num_samples/10) == 0:
                     print("Completed {} out of {} samples".format(index, num_samples))
                     self._write_output(weight_data)
@@ -353,8 +357,19 @@ class RatioCounter(Counter):
         skipped_field = 0
         while loop_i < num_samples:
 
-            tile = self._reference_survey.generate_circular_tile(self._radius, *args, **kwargs)
-            control_catalog = self._reference_survey.get_objects(tile, masked=self._mask, get_distance=True, dist_units = u.arcsec)
+            tile = self._comparison_region.generate_circular_tile(self._radius, *args, **kwargs)
+            control_data = self._reference_survey.get_data_from_region(tile, ["catalog", "mask"])
+            if control_data is None:
+                skipped_reference += 1
+                logging.warning("Found no objets for tile centered at {}".format(tile.coordinate))
+                logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_reference, loop_i+skipped_reference+skipped_field+1))
+                continue
+
+            control_catalog = control_data["catalog"]
+            control_mask = control_data["mask"]
+            distances = tile.coordinate.separation(control_catalog.coords).to(u.arcsec)
+            control_catalog['r'] = distances
+
         
 
 
@@ -362,51 +377,47 @@ class RatioCounter(Counter):
                 #Sometimes the returned catalog will be empty, in which case
                 #we reject the sample
                 skipped_reference += 1
-                logging.warning("Found no objets for tile centered at {}".format(tile.skycoord[0]))
+                logging.warning("Found no objets for tile centered at {}".format(tile.coordinate))
                 logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_reference, loop_i+skipped_reference+skipped_field+1))
                 continue
-            
-            if self._field_mask is not None:
-                control_catalog = self._field_mask.mask_external_catalog(control_catalog, tile, self._field_region)
-            if self._has_catalog_samples:
-                field_catalog = [self._prep_field_catalog(cat, internal_region=tile) for cat in self._sampled_catalogs]
+            if control_mask is not None:
+                control_catalog = control_catalog[control_mask]
+                field_catalog = rotate(self._field_catalog, self._field_center, tile.coordinate)
+                field_catalog = field_catalog[control_mask]
             else:
-                field_catalog = [self._prep_field_catalog(self._field_catalog, internal_region=tile)]
+                field_catalog = self._field_catalog
+
+            if self._field_mask is not None:
+                control_catalog = rotate(control_catalog, tile.coordinate, self._field_center)
+                control_catalog = control_catalog[self._field_mask]
             
-            if np.all([empty for empty in map(lambda cat: len(cat) == 0, field_catalog)]):
+
+
+            if len(field_catalog) == 0:
                 skipped_field += 1
                 logging.warning("Found no objects in field catalog after masking")
                 logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_field, loop_i+skipped_reference+skipped_field+1))
                 continue
                 
             control_catalog = self.apply_periodic_filters(control_catalog, 'control')
+            field_catalog = self.apply_periodic_filters(field_catalog, 'field')
             control_weights={}
             field_weights={}
             for name in self._weight_names:
                 if 'meds' not in name:
-                    field_weights.update({name: [self._weightfns[name].compute_weight(c) for c in field_catalog]})
+                    field_weights.update({name: self._weightfns[name].compute_weight(field_catalog)})
                     control_weights.update({name: self._weightfns[name].compute_weight(control_catalog)})
                     
                 else:
                     wname = name.split('_')[0]
                     #I'd much rather fold these into a single funtion call
-                    field_weights.update({name: [self._weightfns[wname].compute_weight(c, meds=True) for c in field_catalog]})
+                    field_weights.update({name: self._weightfns[wname].compute_weight(field_catalog, meds=True)})
                     control_weights.update({name: self._weightfns[wname].compute_weight(control_catalog, meds=True)})
 
             row = self._parse_weight_values(field_weights, control_weights)
             loop_i += 1
             yield row
     
-    def _prep_field_catalog(self, cat, *args, **kwargs):
-            if self._mask:
-                field_catalog = self._reference_survey.mask_external_catalog(cat, external_region=self._field_region, *args, **kwargs)
-
-            else:
-                field_catalog = cat
-
-            field_catalog = self.apply_periodic_filters(field_catalog, 'field')
-            return field_catalog
-
     def _generate_catalog_samples(self, sample_param, *args, **kwargs):
         #At present, we can only handle one sampled param at a time
         par = sample_param[0]
@@ -420,7 +431,7 @@ class RatioCounter(Counter):
         """
         np.seterr(invalid='raise')
 
-        return_weights = {weight_name: np.zeros(len(weight_values)) for weight_name, weight_values in field_weights.items()}
+        return_weights = {}
 
         for weight_name, weight_values in field_weights.items():
             try:
@@ -428,35 +439,24 @@ class RatioCounter(Counter):
             except:
                 control_weight = np.sum(control_weights[weight_name])
 
-            for index, value in enumerate(weight_values):
+            try:
+                field_weight = float(weight_values)
+            except:
+                field_weight = np.sum(weight_values)
 
-                try:
-                    field_weight = float(value)
-                    try:
-                        ratio = field_weight/control_weight
-                        return_weights[weight_name][index] = ratio
-                    except Exception as e:
-                        """
-                        This should result from an overflow
-                        """
-                        return_weights[weight_name][index] = -1
-                    continue
-                except:
-                    field_weight = np.sum(value)
-                    try:
-                        ratio = field_weight/control_weight
-                        return_weights[weight_name][index] = ratio
-                    except Exception as e:
-                        return_weights[weight_name][index] = -1
-                        continue
-
-        return pd.DataFrame(return_weights)
+            try:
+                ratio = field_weight/control_weight
+            except:
+                ratio = -1
+            return_weights[weight_name] = [ratio]
+                
+        return pd.DataFrame.from_dict(return_weights)
     
 
 
 class SingleCounter(Counter):
 
-    def __init__(self, dataset: DataSet, mask = False, *args, **kwargs):
+    def __init__(self, dataset: Dataset, mask = False, *args, **kwargs):
         """
         This counter does not compute ratios, it just gets the values of the weights
         for the control dataset passed.
@@ -476,7 +476,7 @@ class SingleCounter(Counter):
             except:
                 logging.warning("Set overwrite=True to overwrite this file anyway")
                 exit()
-        if not isinstance(self._reference_survey, DataSet):
+        if not isinstance(self._reference_survey, Dataset):
             logging.error("Reference surve is not a DataSet! Exiting...")
             exit()
 

@@ -13,6 +13,18 @@ from .params import CatalogParam, QuantCatalogParam
 from .sampling import Distribution
 
 
+
+def rotate(catalog, center, new_center):
+    original = catalog.coords
+    separations = original.separation(center)
+    pas = original.position_angle(center)
+    
+    new_coords = new_center.directional_offset_by(pas, separations)
+    new_cat = copy(catalog)
+    new_cat.update_coords(new_coords)
+    return new_cat
+
+
 class Catalog(ABC):
 
     def __init__(self, cat, base_parmap = {}, partypes = {}, *args, **kwargs):

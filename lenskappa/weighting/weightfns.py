@@ -1,91 +1,90 @@
 import numpy as np
 
-def gal(cat):
+def gal(cat, **kwargs):
     """
     Simply counts the number of galaxies
     """
     return np.ones(len(cat), dtype=np.float64)
 
-def zweight(cat):
+def zweight(cat, z_s, *args, **kwargs):
     z_gal = cat['z_gal']
-    z_s = cat['z_s']
     return z_s*z_gal - z_gal*z_gal
 
-def mass(cat):
+def mass(cat, **kwargs):
     return cat['m_gal']
 
-def mass2(cat):
+def mass2(cat, **kwargs):
     masses = mass(cat)
     return masses**2
 
-def mass3(cat):
+def mass3(cat, **kwargs):
     masses = mass(cat)
     return masses**3
 
-def oneoverr(cat):
+def oneoverr(cat, **kwargs):
     rs = cat['r'].value
     return 1.0/rs
 
-def zoverr(cat):
+def zoverr(cat, **kwargs):
     zweights = zweight(cat)
     rs = cat['r'].value
     return zweights/rs
 
-def massoverr(cat):
+def massoverr(cat, **kwargs):
     masses = cat['m_gal']
     rs = cat['r'].value
     return masses/rs
 
-def mass2overr(cat):
+def mass2overr(cat, **kwargs):
     masses = cat['m_gal']
     rs = cat['r'].value
     return masses**2/rs
 
-def mass3overr(cat):
+def mass3overr(cat, **kwargs):
     masses = cat['m_gal']
     rs = cat['r'].value
     return masses**3/rs
-def mass2rms(cat):
+def mass2rms(cat, **kwargs):
     # This weight can only return a single value. There are no relative weights
     weights = mass2(cat)
     return weights
-def mass3rms(cat):
+def mass3rms(cat, **kwargs):
     # This weight can only return a single value. There are no relative weights
     weights = mass3(cat)
     return weights
 
-def mass2overrms(cat):
+def mass2overrms(cat, **kwargs):
     # This weight can only return a single value. There are no relative weights
     weights = mass2overr(cat)
     return weights
 
-def mass3overrms(cat):
+def mass3overrms(cat, **kwargs):
     # This weight can only return a single value. There are no relative weights
     weights = mass3overr(cat)
     return weights
 
-def flexion(cat):
+def flexion(cat, **kwargs):
     m_gals = cat['m_gal']
     rs = cat['r'].value
     return m_gals/(rs**3)
 
-def tidal(cat):
+def tidal(cat, **kwargs):
     m_gals = cat['m_gal']
 
     rs = cat['r'].value
     return m_gals/(rs**2)
 
-def convergence(cat):
+def convergence(cat, **kwargs):
     m_gals = cat['m_gal']
     rs = cat['r'].value
     return np.sqrt(m_gals)/rs
 
-def convergencehalo(cat):
+def convergencehalo(cat, **kwargs):
     halo_masses = compute_halomass(cat)
     rs = cat['r'].value
     return np.sqrt(halo_masses)/rs
 
-def compute_halomass(cat):
+def compute_halomass(cat, **kwargs):
     # z <= 1
     M10_ = 12.35
     M1a_ = 0.28
@@ -113,7 +112,7 @@ def compute_halomass(cat):
     m_gal = cat['m_gal']
     halo_masses = np.zeros(len(m_gal))
     i = 0
-    for index, z in enumerate(z_gal):
+    for index, z in enumerate(z_gal, **kwargs):
         if z <= 1:
             a = 1/(1+z)
 

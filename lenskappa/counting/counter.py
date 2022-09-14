@@ -20,7 +20,7 @@ from lenskappa.catalog import rotate
 
 from heinlein.dataset import Dataset
 from heinlein.dtypes.catalog import Catalog
-from heinlein.region import BaseRegion
+from heinlein.region import BaseRegion, Region
 class Counter(ABC):
 
     def __init__(self, comparison_dataset: Dataset, comparison_region: BaseRegion, mask=True, *args, **kwargs):
@@ -155,11 +155,11 @@ class Counter(ABC):
 
         #The default numpy RNG is not thread safe, so we have to create several
         #This needs a more elegant solution
-        splits = self._split_comparison_region(threads)
+        splits = self._split_comparison_region(num_workers)
+        splits = [Region.polygon(s) for s in splits]
         numperthread = math.ceil(num_samples/(num_workers))
         self._queues = [mp.Queue() for _ in range(num_workers)]
-        self._processes = [mp.Process(target=self._weight_worker, args=(numperthread, region, self._queues[i], i) ) for i in range(num_workers) ]
-
+        self._processes = [mp.Process(target=weight_worker, args=(numperthread, splits[i], self._queues[i], i, self) ) for i in range(num_workers) ]
         for process in self._processes:
             atexit.register(process.terminate)
 
@@ -180,10 +180,10 @@ class Counter(ABC):
         dx = bounds[2] - bounds[0]
         dy = bounds[3] - bounds[1]
         if dx > dy:
-            cuts = [bounds[0] + dx/(threads - 1)*i for i in range(threads)]
+            cuts = [bounds[0] + dx/(threads)*i for i in range(threads+1)]
             boxes = [geometry.box(b, bounds[1], cuts[i+1], bounds[3]) for i, b in enumerate(cuts[:-1])]
         else:
-            cuts = [bounds[1] + dy/(threads - 1)*i for i in range(threads)]
+            cuts = [bounds[1] + dy/(threads)*i for i in range(threads+1)]
             boxes = [geometry.box(bounds[0], b, bounds[2], cuts[i+1]) for i, b in enumerate(cuts[:-1])]
         return boxes
 
@@ -204,7 +204,8 @@ class Counter(ABC):
                 elif val == "done":
                     self._running[index] = False
             if frames:
-                output_frame = output_frame.append(pd.concat(frames), ignore_index=True)
+                frames.append(output_frame)
+                output_frame = pd.concat(frames)
                 logging.info("Completed {} out of {} samples".format(len(output_frame), num_samples))
                 logging.info("Writing output for first {} samples".format(index))
 
@@ -246,8 +247,6 @@ class Counter(ABC):
     def add_weight_params(self, params):
         self._weight_params.update(params)
         
-
-
 
 class RatioCounter(Counter):
 
@@ -416,7 +415,7 @@ class RatioCounter(Counter):
                 logging.warning("Found no objects in field catalog after masking")
                 logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_field, loop_i+skipped_reference+skipped_field+1))
                 continue
-                
+            print("APPLYING FILTERS")
             control_catalog = self.apply_periodic_filters(control_catalog, 'control')
             field_catalog = self.apply_periodic_filters(field_catalog, 'field')
             control_weights={}
@@ -470,6 +469,21 @@ class RatioCounter(Counter):
                 
         return pd.DataFrame.from_dict(return_weights)
     
+
+def weight_worker(num_samples, region, queue, thread_num, counter, *args, **kwargs):
+    counter._comparison_region = region
+    weight_data = pd.DataFrame(columns=list(counter._weightfns.keys()))
+    for index, row in enumerate(counter._get_weight_values(num_samples, thread_num = thread_num, *args, **kwargs)):
+        weight_data = pd.concat([weight_data,row], ignore_index=True)
+        if index and (index % (int(num_samples/10)) == 0):
+
+            logging.info("Thread {} completed {} samples".format(thread_num, index))
+            logging.info("Sending to supervisor...")
+            queue.put(weight_data)
+            weight_data = pd.DataFrame(columns=list(counter._weightfns.keys()))
+    print("got them all!")
+    queue.put(weight_data)
+    queue.put("done")
 
 
 class SingleCounter(Counter):

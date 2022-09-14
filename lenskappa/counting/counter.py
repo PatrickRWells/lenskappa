@@ -1,5 +1,7 @@
 from abc import abstractmethod, ABC
+from cmath import isclose
 from re import M
+from turtle import shape
 import numpy as np
 from shapely import geometry
 import multiprocess as mp
@@ -148,16 +150,15 @@ class Counter(ABC):
         MultiThreadObject.set_num_threads(threads)
         num_threads = MultiThreadObject.get_num_threads()
         num_workers = num_threads - 1
-        self._reference_survey.wait_for_setup()
         #MultiThreadObject runs a check to make sure the number of threads is valid
         #So get the actual number from it after setting just to be safe.
 
         #The default numpy RNG is not thread safe, so we have to create several
         #This needs a more elegant solution
-
+        splits = self._split_comparison_region(threads)
         numperthread = math.ceil(num_samples/(num_workers))
         self._queues = [mp.Queue() for _ in range(num_workers)]
-        self._processes = [mp.Process(target=self._weight_worker, args=(numperthread, self._queues[i], i) ) for i in range(num_workers) ]
+        self._processes = [mp.Process(target=self._weight_worker, args=(numperthread, region, self._queues[i], i) ) for i in range(num_workers) ]
 
         for process in self._processes:
             atexit.register(process.terminate)
@@ -168,6 +169,23 @@ class Counter(ABC):
         print("Starting weighting...")
 
         self._listen(num_samples)
+
+    def _split_comparison_region(self, threads):
+        shapely_region = self._comparison_region.geometry
+        if not math.isclose(shapely_region.area, shapely_region.minimum_rotated_rectangle.area):
+            print("Error: Multithreading currengly only works with rectangular comparison regions")
+            exit()
+
+        bounds = shapely_region.bounds
+        dx = bounds[2] - bounds[0]
+        dy = bounds[3] - bounds[1]
+        if dx > dy:
+            cuts = [bounds[0] + dx/(threads - 1)*i for i in range(threads)]
+            boxes = [geometry.box(b, bounds[1], cuts[i+1], bounds[3]) for i, b in enumerate(cuts[:-1])]
+        else:
+            cuts = [bounds[1] + dy/(threads - 1)*i for i in range(threads)]
+            boxes = [geometry.box(bounds[0], b, bounds[2], cuts[i+1]) for i, b in enumerate(cuts[:-1])]
+        return boxes
 
     def _listen(self, num_samples):
         """
@@ -196,7 +214,7 @@ class Counter(ABC):
             process.join()
 
 
-    def _weight_worker(self, num_samples, queue, thread_num, *args, **kwargs):
+    def _weight_worker(self, num_samples, region, queue, thread_num, *args, **kwargs):
         """
         Worker function suitable for use in multithreaded runs.
         Expects a queue to communicate with the supervisor thread.

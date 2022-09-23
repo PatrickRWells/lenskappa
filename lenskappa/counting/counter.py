@@ -200,11 +200,11 @@ class Counter(ABC):
                     frames.append(val)
                 elif val == "done":
                     self._running[index] = False
-            if frames:
+            if frames:  
                 frames.append(output_frame)
                 output_frame = pd.concat(frames)
-                logging.info("Completed {} out of {} samples".format(len(output_frame), num_samples))
-                logging.info("Writing output for first {} samples".format(index))
+                print("Completed {} out of {} samples".format(len(output_frame), num_samples))
+                print("Writing output for first {} samples".format(index))
 
                 self._write_output(output_frame)
 
@@ -223,8 +223,8 @@ class Counter(ABC):
             weight_data = weight_data.append(row, ignore_index=True)
             if index and (index % (int(num_samples/10)) == 0):
 
-                logging.info("Thread {} completed {} samples".format(thread_num, index))
-                logging.info("Sending to supervisor...")
+                print("Thread {} completed {} samples".format(thread_num, index))
+                print("Sending to supervisor...")
                 queue.put(weight_data)
                 weight_data = pd.DataFrame(columns=list(self._weightfns.keys()))
 

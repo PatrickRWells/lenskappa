@@ -208,7 +208,8 @@ class Counter(ABC):
 
                 self._write_output(output_frame)
 
-        for process in self._processes:
+        for i, process in enumerate(self._processes):
+            print(f"Joined process {i}")
             process.join()
 
 
@@ -396,6 +397,9 @@ class RatioCounter(Counter):
                 continue
             if control_mask is not None:
                 control_catalog = control_catalog[control_mask]
+                if len(control_catalog) == 0:
+                    skipped_reference += 1
+                    continue
                 field_catalog = rotate(self._field_catalog, self._field_center, tile.coordinate)
                 field_catalog = field_catalog[control_mask]
             else:
@@ -563,7 +567,7 @@ class SingleCounter(Counter):
             df = df.append(row, ignore_index=True)
             if index % 100 == 0:
                 print("Completed {}".format(index))
-                df.to_csv(output_file)
+                df.to_csv(output_file, index=False)
 
 
 

@@ -239,7 +239,7 @@ class Counter(ABC):
         Writes output.
         I/O should eventually be its own module
         """
-        weights.to_csv(self._output_fname)
+        weights.to_csv(self._output_fname, index=False)
 
 
     def add_weight_params(self, params):

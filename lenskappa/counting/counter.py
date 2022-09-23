@@ -171,11 +171,8 @@ class Counter(ABC):
         self._listen(num_samples)
 
     def _split_comparison_region(self, threads):
-        shapely_region = self._comparison_region.geometry
-        if not math.isclose(shapely_region.area, shapely_region.minimum_rotated_rectangle.area):
-            print("Error: Multithreading currengly only works with rectangular comparison regions")
-            exit()
-
+        shapely_region = self._comparison_region.sky_geometry
+        #NEED TO DO SOME SORT OF CHECKING HERE
         bounds = shapely_region.bounds
         dx = bounds[2] - bounds[0]
         dy = bounds[3] - bounds[1]
@@ -415,7 +412,6 @@ class RatioCounter(Counter):
                 logging.warning("Found no objects in field catalog after masking")
                 logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_field, loop_i+skipped_reference+skipped_field+1))
                 continue
-            print("APPLYING FILTERS")
             control_catalog = self.apply_periodic_filters(control_catalog, 'control')
             field_catalog = self.apply_periodic_filters(field_catalog, 'field')
             control_weights={}
@@ -476,12 +472,10 @@ def weight_worker(num_samples, region, queue, thread_num, counter, *args, **kwar
     for index, row in enumerate(counter._get_weight_values(num_samples, thread_num = thread_num, *args, **kwargs)):
         weight_data = pd.concat([weight_data,row], ignore_index=True)
         if index and (index % (int(num_samples/10)) == 0):
-
             logging.info("Thread {} completed {} samples".format(thread_num, index))
             logging.info("Sending to supervisor...")
             queue.put(weight_data)
             weight_data = pd.DataFrame(columns=list(counter._weightfns.keys()))
-    print("got them all!")
     queue.put(weight_data)
     queue.put("done")
 

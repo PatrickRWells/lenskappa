@@ -8,8 +8,9 @@ import numpy as np
 
 class weight:
 
-    def __init__(self, weightname, weight_config = None):
+    def __init__(self, weightname, weight_config = None, params = []):
         self._name = weightname
+        self._params = params
         if weight_config is None:
             self._config = self._load_weight_config()
         else:
@@ -63,36 +64,21 @@ class weight:
         """
         #Check to make sure the required parameters exist in the catalog
         #Or are mapped in pars
-        cat_pars = catalog.get_parmap()
         #Check for catalog params
         for std_name in self._cat_params:
-            if std_name not in cat_pars.keys():
-                logging.error("Looked for parameter {} in the input catalog, but couldn't find it".format(std_name))
-                exit()
+            catalog[std_name]
         for parname in self._other_params:
             try:
-                parval = cat_pars[parname]
+                parval = self._params[parname]
             except:
                 print("Error: unable to find value for parameter {} required to calculate weight {}".format(parname, self._name))
                 exit()
-        
-        self._parmap = cat_pars
-        self._sampled_pars = catalog.has_samples()
-        try:
-            self._intersections = set(self._cat_params).intersection(self._sampled_pars)
-        except:
-            self._intersections = False
-
-
-        if self._sampled_pars and self._intersections:
-            self._compute_weights_sampled_params(catalog)    
-        else:
-            weights = self._weightfn(catalog)
-            if meds and len(weights) != 0: #Second condition avoids crash
-                weights = np.median(weights)*np.ones(len(weights), dtype=np.float64)
-            if self._post is not None:
-                weights = self._post(np.sum(weights))
-            return weights
+        weights = self._weightfn(catalog, **self._params)
+        if meds and len(weights) != 0: #Second condition avoids crash
+            weights = np.median(weights)*np.ones(len(weights), dtype=np.float64)
+        if self._post is not None:
+            weights = self._post(np.sum(weights))
+        return weights
     
     def _compute_weight_sampled_params(self, catalog):
         """
@@ -118,7 +104,7 @@ class weight:
         
 
 
-def load_all_weights():
+def load_all_weights(params = []):
     import os
     import lenskappa
     #Loads all weights found in the given config file and returns a dictionary
@@ -126,10 +112,10 @@ def load_all_weights():
     config = os.path.join(os.path.dirname(os.path.abspath(lenskappa.__file__)), loc)
 
     weight_config = toml.load(config)
-    weights = {key: weight(key, weight_config) for key in weight_config.keys()}
+    weights = {key: weight(key, weight_config, params) for key in weight_config.keys()}
     return(weights)
 
-def load_some_weights(weight_names):
+def load_some_weights(weight_names, params = []):
     import os
     import lenskappa
     #Loads all weights found in the given config file and returns a dictionary
@@ -140,7 +126,7 @@ def load_some_weights(weight_names):
     weights = {}
     for name in weight_names:
         try:
-            weightfn = weight(name, weight_config)
+            weightfn = weight(name, weight_config, params)
             weights.update({name: weightfn})
         except Exception as e:
             print(e) 

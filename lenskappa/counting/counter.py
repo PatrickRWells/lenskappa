@@ -11,7 +11,7 @@ import math
 import logging
 import astropy.units as u
 import atexit
-from copy import copy
+from copy import copy, deepcopy
 
 from lenskappa.weighting import weighting
 from lenskappa.datasets.surveys.survey import Survey
@@ -396,7 +396,16 @@ class RatioCounter(Counter):
                 logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_reference, loop_i+skipped_reference+skipped_field+1))
                 continue
             if control_mask is not None:
-                control_catalog = control_catalog[control_mask]
+                try:
+                    control_catalog = control_catalog[control_mask]
+                except ValueError:
+                    print("Masking failed!")
+                    print(control_catalog)
+                    print(tile)
+                    print(control_catalog.coords)
+                    skipped_reference += 1
+                    continue
+
                 if len(control_catalog) == 0:
                     skipped_reference += 1
                     continue

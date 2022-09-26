@@ -1,7 +1,4 @@
 from abc import abstractmethod, ABC
-from cmath import isclose
-from re import M
-from turtle import shape
 import numpy as np
 from shapely import geometry
 import multiprocess as mp
@@ -11,16 +8,16 @@ import math
 import logging
 import astropy.units as u
 import atexit
-from copy import copy, deepcopy
+from copy import copy
 
 from lenskappa.weighting import weighting
-from lenskappa.datasets.surveys.survey import Survey
 from lenskappa.utils.multithreading import MultiThreadObject
 from lenskappa.catalog import rotate
 
 from heinlein.dataset import Dataset
 from heinlein.dtypes.catalog import Catalog
 from heinlein.region import BaseRegion, Region
+
 class Counter(ABC):
 
     def __init__(self, comparison_dataset: Dataset, comparison_region: BaseRegion, mask=True, *args, **kwargs):

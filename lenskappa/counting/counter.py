@@ -201,7 +201,7 @@ class Counter(ABC):
                 frames.append(output_frame)
                 output_frame = pd.concat(frames)
                 print("Completed {} out of {} samples".format(len(output_frame), num_samples))
-                print("Writing output for first {} samples".format(index))
+                print("Writing output for first {} samples".format(len(output_frame)))
 
                 self._write_output(output_frame)
 

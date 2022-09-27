@@ -299,7 +299,7 @@ class RatioCounter(Counter):
 
 
 
-    def get_weights(self, weights, num_samples = 100, output_file = "output.csv", threads = 1, meds=False, *args, **kwargs):
+    def get_weights(self, weights, num_samples = 100, output_file = "output.csv", threads = 1, meds=False, notification_fraction = 0.1, *args, **kwargs):
         """
         get the weighted count ratios.
 
@@ -308,7 +308,7 @@ class RatioCounter(Counter):
             num_samples: Number of control apertures to generate
             threads: Number of threads to run
         """
-
+        self._notification_fraction = notification_fraction
         if threads > 1:
             MultiThreadObject.set_num_threads(threads)
         self._output_fname = output_file
@@ -478,6 +478,7 @@ class RatioCounter(Counter):
 
 def weight_worker(num_samples, region, queue, thread_num, counter, *args, **kwargs):
     counter._comparison_region = region
+    notification_fraction = counter._notification_fraction
     weight_data = pd.DataFrame(columns=list(counter._weightfns.keys()))
     for index, row in enumerate(counter._get_weight_values(num_samples, thread_num = thread_num, *args, **kwargs)):
         weight_data = pd.concat([weight_data,row], ignore_index=True)

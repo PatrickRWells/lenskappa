@@ -185,7 +185,8 @@ class Counter(ABC):
         """
         Collects results from worker threads and periodically writes them to output
         """
-        output_frame = pd.DataFrame(columns=list(self._weightfns.keys()))
+        cols = list(["ra", "dec"] + list(self._weightfns.keys()))
+        output_frame = pd.DataFrame(columns=cols)
         while np.any(self._running):
             frames = []
             for index, q in enumerate(self._queues):
@@ -200,8 +201,8 @@ class Counter(ABC):
             if frames:  
                 frames.append(output_frame)
                 output_frame = pd.concat(frames)
-                print("Completed {} out of {} samples".format(len(output_frame), num_samples))
-                print("Writing output for first {} samples".format(len(output_frame)))
+                print("Completed {} out of {} samples".format(l := len(output_frame), num_samples))
+                print("Writing output for first {} samples".format(l))
 
                 self._write_output(output_frame)
 
@@ -437,7 +438,7 @@ class RatioCounter(Counter):
                     field_weights.update({name: self._weightfns[wname].compute_weight(field_catalog, meds=True)})
                     control_weights.update({name: self._weightfns[wname].compute_weight(control_catalog, meds=True)})
 
-            row = self._parse_weight_values(field_weights, control_weights)
+            row = self._parse_weight_values(field_weights, control_weights, tile.coordinate)
             loop_i += 1
             yield row
     
@@ -447,14 +448,13 @@ class RatioCounter(Counter):
         field_catalogs = self._field_catalog.generate_catalogs_from_samples(par)
         self._sampled_catalogs = field_catalogs
 
-    def _parse_weight_values(self, field_weights, control_weights):
+    def _parse_weight_values(self, field_weights, control_weights, center):
 
         """
         Parse the values returned by the weighting code and compute the ratio
         """
         np.seterr(invalid='raise')
-
-        return_weights = {}
+        return_weights = {'ra': center.ra, 'dec': center.dec}
 
         for weight_name, weight_values in field_weights.items():
             try:
@@ -472,14 +472,15 @@ class RatioCounter(Counter):
             except:
                 ratio = -1
             return_weights[weight_name] = [ratio]
-                
-        return pd.DataFrame.from_dict(return_weights)
+
+        return pd.DataFrame(return_weights, columns=return_weights.keys())
     
 
 def weight_worker(num_samples, region, queue, thread_num, counter, *args, **kwargs):
     counter._comparison_region = region
     notification_fraction = counter._notification_fraction
-    weight_data = pd.DataFrame(columns=list(counter._weightfns.keys()))
+    cols = ["ra", "dec"] + list(counter._weightfns.keys())
+    weight_data = pd.DataFrame(columns=cols)
     for index, row in enumerate(counter._get_weight_values(num_samples, thread_num = thread_num, *args, **kwargs)):
         weight_data = pd.concat([weight_data,row], ignore_index=True)
         if index and (index % (int(num_samples*notification_fraction)) == 0):

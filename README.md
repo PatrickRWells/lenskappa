@@ -4,7 +4,7 @@ study the environments around strong gravitational lenses.
 
 ## Installation
 
-lenskappa has been tested and is working with python >= 3.7. It may work on older versions of python, but I recommend just creating a new conda or virtualenv environment.
+lenskappa has been tested and is working with python >= 3.8.
 
 If you are unfamiliar with virtual environments, start [here](https://www.youtube.com/watch?v=KxvKCSwlUv8).
 

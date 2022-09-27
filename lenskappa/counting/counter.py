@@ -482,7 +482,7 @@ def weight_worker(num_samples, region, queue, thread_num, counter, *args, **kwar
     weight_data = pd.DataFrame(columns=list(counter._weightfns.keys()))
     for index, row in enumerate(counter._get_weight_values(num_samples, thread_num = thread_num, *args, **kwargs)):
         weight_data = pd.concat([weight_data,row], ignore_index=True)
-        if index and (index % (int(num_samples/10)) == 0):
+        if index and (index % (int(num_samples*notification_fraction)) == 0):
             print("Thread {} completed {} samples".format(thread_num, index))
             print("Sending to supervisor...")
             queue.put(weight_data)

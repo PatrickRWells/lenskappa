@@ -51,4 +51,3 @@ class csvOutputHandler(outputHandler):
         
         with self._lock:
             self._df = pd.concat([self._df, output], ignore_index=True)
-            print(self._df)

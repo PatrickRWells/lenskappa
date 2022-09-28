@@ -1,4 +1,5 @@
 from abc import abstractmethod, ABC
+from concurrent.futures import thread
 import multiprocessing as mp
 import numpy as np
 from shapely import geometry
@@ -10,6 +11,7 @@ import logging
 import astropy.units as u
 import atexit
 from copy import copy
+import time
 
 from lenskappa.weighting import weighting
 from lenskappa.utils.multithreading import MultiThreadObject
@@ -200,6 +202,7 @@ class Counter(ABC):
                 self._output.write_output(index=False)
                 last_notification = l
 
+        self._output.write_output(index=False)
         for i, process in enumerate(self._processes):
             print(f"Joined process {i}")
             process.join()
@@ -365,7 +368,6 @@ class RatioCounter(Counter):
         skipped_reference = 0
         skipped_field = 0
         while loop_i < num_samples:
-
             tile = self._comparison_region.generate_circular_tile(self._radius, *args, **kwargs)
             control_data = self._reference_survey.get_data_from_region(tile, ["catalog", "mask"])
             if control_data is None:
@@ -434,7 +436,7 @@ class RatioCounter(Counter):
                     field_weights.update({name: self._weightfns[wname].compute_weight(field_catalog, meds=True)})
                     control_weights.update({name: self._weightfns[wname].compute_weight(control_catalog, meds=True)})
 
-
+            loop_i += 1
             row = {'center': tile.coordinate, 'field_weights': field_weights, 'control_weights': control_weights}
             yield row
     
@@ -447,7 +449,16 @@ class RatioCounter(Counter):
 
 def weight_worker(num_samples, region, queue, thread_num, counter, *args, **kwargs):
     counter._comparison_region = region
-    for row in counter._get_weight_values(num_samples, thread_num = thread_num, *args, **kwargs):
+    n_notify = int(num_samples*counter._notification_fraction)
+    start = time.time()
+    for index, row in enumerate(counter._get_weight_values(num_samples, thread_num = thread_num, *args, **kwargs)):
+        if index and (index % n_notify == 0):
+            end = time.time()
+            t = round(end - start)
+            print(f"Thread {thread_num} completed {index} of {num_samples} samples!")
+            print(f"The most recent {n_notify} samples took {t} seconds")
+            print(f"On average, this is about {round(t/n_notify,1)} seconds/sample")
+            start = time.time()
         queue.put(row)
 
     queue.put("done")

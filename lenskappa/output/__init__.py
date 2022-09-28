@@ -1,4 +1,4 @@
-from output import csvOutputHandler as csvOutput
+from .output import csvOutputHandler as csvOutput
+from .parser import weightsOutputParser as weightParser
 
-
-__all__ = ["csvOutput"]
+__all__ = ["csvOutput", "weightParser"]

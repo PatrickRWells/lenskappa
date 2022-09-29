@@ -1,4 +1,6 @@
 from abc import abstractmethod, ABC
+from concurrent.futures import thread
+import multiprocessing as mp
 import numpy as np
 from shapely import geometry
 import multiprocess as mp
@@ -9,10 +11,12 @@ import logging
 import astropy.units as u
 import atexit
 from copy import copy
+import time
 
 from lenskappa.weighting import weighting
 from lenskappa.utils.multithreading import MultiThreadObject
 from lenskappa.catalog import rotate
+from lenskappa import output
 
 from heinlein.dataset import Dataset
 from heinlein.dtypes.catalog import Catalog
@@ -52,13 +56,6 @@ class Counter(ABC):
     def _get_weight_values(self, *args, **kwargs):
         """
         Should be a generator that returns weight values        
-        """
-        pass
-
-    @abstractmethod
-    def _parse_weight_values(self, *args, **kwargs):
-        """
-        Should parse weight values into a pandas row
         """
         pass
 
@@ -185,26 +182,27 @@ class Counter(ABC):
         """
         Collects results from worker threads and periodically writes them to output
         """
-        output_frame = pd.DataFrame(columns=list(self._weightfns.keys()))
+        n_notify = int(num_samples*self._notification_fraction)
+        last_notification = 0
         while np.any(self._running):
-            frames = []
             for index, q in enumerate(self._queues):
                 if not self._running[index]:
                     continue
 
                 val = q.get()
-                if type(val) == pd.DataFrame:
-                    frames.append(val)
-                elif val == "done":
+                if val == "done":
                     self._running[index] = False
-            if frames:  
-                frames.append(output_frame)
-                output_frame = pd.concat(frames)
-                print("Completed {} out of {} samples".format(len(output_frame), num_samples))
-                print("Writing output for first {} samples".format(len(output_frame)))
+                else:
+                    self._output.take_output(val)
 
-                self._write_output(output_frame)
+            l = len(self._output)
+            if l > (last_notification + n_notify):
+                print("Completed {} out of {} samples".format(l, num_samples))
+                print("Writing output for first {} samples".format(l))
+                self._output.write_output(index=False)
+                last_notification = l
 
+        self._output.write_output(index=False)
         for i, process in enumerate(self._processes):
             print(f"Joined process {i}")
             process.join()
@@ -337,7 +335,9 @@ class RatioCounter(Counter):
                 self._weight_names.append('_'.join([name, 'meds']))
         else:
             self._weight_names = list(self._weightfns.keys())
-        weight_data = pd.DataFrame(columns=self._weight_names)
+
+        columns = ["ra", "dec"] + self._weight_names
+        self._output = output.csvOutput(output_file, output.weightParser, columns)
 
         #If no weights were loaded, terminate
         if self._weightfns is None:
@@ -353,12 +353,12 @@ class RatioCounter(Counter):
         else:
             print("Starting weighting...")
             for index, row in enumerate(self._get_weight_values(num_samples)):
-                weight_data = pd.concat([weight_data, row], ignore_index=True)
+                self._output.take_output(row)
                 if index and index % (num_samples/10) == 0:
                     print("Completed {} out of {} samples".format(index, num_samples))
-                    self._write_output(weight_data)
+                    self._output.write_output(index=False)
 
-            self._write_output(weight_data)
+            self._output.write_output(index=False)
 
     def _get_weight_values(self, num_samples, *args, **kwargs):
         """
@@ -368,7 +368,6 @@ class RatioCounter(Counter):
         skipped_reference = 0
         skipped_field = 0
         while loop_i < num_samples:
-
             tile = self._comparison_region.generate_circular_tile(self._radius, *args, **kwargs)
             control_data = self._reference_survey.get_data_from_region(tile, ["catalog", "mask"])
             if control_data is None:
@@ -437,8 +436,8 @@ class RatioCounter(Counter):
                     field_weights.update({name: self._weightfns[wname].compute_weight(field_catalog, meds=True)})
                     control_weights.update({name: self._weightfns[wname].compute_weight(control_catalog, meds=True)})
 
-            row = self._parse_weight_values(field_weights, control_weights)
             loop_i += 1
+            row = {'center': tile.coordinate, 'field_weights': field_weights, 'control_weights': control_weights}
             yield row
     
     def _generate_catalog_samples(self, sample_param, *args, **kwargs):
@@ -446,48 +445,22 @@ class RatioCounter(Counter):
         par = sample_param[0]
         field_catalogs = self._field_catalog.generate_catalogs_from_samples(par)
         self._sampled_catalogs = field_catalogs
-
-    def _parse_weight_values(self, field_weights, control_weights):
-
-        """
-        Parse the values returned by the weighting code and compute the ratio
-        """
-        np.seterr(invalid='raise')
-
-        return_weights = {}
-
-        for weight_name, weight_values in field_weights.items():
-            try:
-                control_weight = float(control_weights[weight_name])
-            except:
-                control_weight = np.sum(control_weights[weight_name])
-
-            try:
-                field_weight = float(weight_values)
-            except:
-                field_weight = np.sum(weight_values)
-
-            try:
-                ratio = field_weight/control_weight
-            except:
-                ratio = -1
-            return_weights[weight_name] = [ratio]
-                
-        return pd.DataFrame.from_dict(return_weights)
     
 
 def weight_worker(num_samples, region, queue, thread_num, counter, *args, **kwargs):
     counter._comparison_region = region
-    notification_fraction = counter._notification_fraction
-    weight_data = pd.DataFrame(columns=list(counter._weightfns.keys()))
+    n_notify = int(num_samples*counter._notification_fraction)
+    start = time.time()
     for index, row in enumerate(counter._get_weight_values(num_samples, thread_num = thread_num, *args, **kwargs)):
-        weight_data = pd.concat([weight_data,row], ignore_index=True)
-        if index and (index % (int(num_samples*notification_fraction)) == 0):
-            print("Thread {} completed {} samples".format(thread_num, index))
-            print("Sending to supervisor...")
-            queue.put(weight_data)
-            weight_data = pd.DataFrame(columns=list(counter._weightfns.keys()))
-    queue.put(weight_data)
+        if index and (index % n_notify == 0):
+            end = time.time()
+            t = round(end - start)
+            print(f"Thread {thread_num} completed {index} of {num_samples} samples!")
+            print(f"The most recent {n_notify} samples took {t} seconds")
+            print(f"On average, this is about {round(t/n_notify,1)} seconds/sample")
+            start = time.time()
+        queue.put(row)
+
     queue.put("done")
 
 

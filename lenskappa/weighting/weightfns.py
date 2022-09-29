@@ -26,7 +26,7 @@ def oneoverr(cat, **kwargs):
     return 1.0/rs
 
 def zoverr(cat, **kwargs):
-    zweights = zweight(cat)
+    zweights = zweight(cat, **kwargs)
     rs = cat['r'].value
     return zweights/rs
 

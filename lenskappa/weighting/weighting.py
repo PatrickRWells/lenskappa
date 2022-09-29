@@ -70,7 +70,7 @@ class weight:
         for parname in self._other_params:
             try:
                 parval = self._params[parname]
-            except:
+            except KeyError:
                 print("Error: unable to find value for parameter {} required to calculate weight {}".format(parname, self._name))
                 exit()
         weights = self._weightfn(catalog, **self._params)
@@ -110,7 +110,6 @@ def load_all_weights(params = []):
     #Loads all weights found in the given config file and returns a dictionary
     loc = "weighting/config/counts.toml"
     config = os.path.join(os.path.dirname(os.path.abspath(lenskappa.__file__)), loc)
-
     weight_config = toml.load(config)
     weights = {key: weight(key, weight_config, params) for key in weight_config.keys()}
     return(weights)

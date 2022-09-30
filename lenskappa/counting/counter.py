@@ -104,7 +104,6 @@ class Counter(ABC):
         except AttributeError:
             return catalog
 
-
         for name, filter in filters.items():
             try:
                 if filter['which'] == 'all' or catname in filter['which']:
@@ -317,7 +316,6 @@ class RatioCounter(Counter):
         coords = self._field_catalog.coords
         distances = self._field_center.separation(coords).to(u.arcsec)
         self._field_catalog['r'] = distances
-
         #Since the survey is not a Catalog object, it has a handler for filters.
 
         #Load the weights
@@ -344,7 +342,7 @@ class RatioCounter(Counter):
             return
         if self._field_mask is not None:
             self._field_catalog = self._field_catalog[self._field_mask]
-
+        
         #Handle multithreaded runs
         if threads > 1:
             self._delegate_weight_values(num_samples, threads)
@@ -369,6 +367,7 @@ class RatioCounter(Counter):
         skipped_field = 0
         while loop_i < num_samples:
             tile = self._comparison_region.generate_circular_tile(self._radius, *args, **kwargs)
+            
             control_data = self._reference_survey.get_data_from_region(tile, ["catalog", "mask"])
             if control_data is None:
                 skipped_reference += 1
@@ -381,7 +380,7 @@ class RatioCounter(Counter):
             distances = tile.coordinate.separation(control_catalog.coords).to(u.arcsec)
             control_catalog['r'] = distances
 
-        
+
 
 
             if len(control_catalog) == 0:
@@ -391,21 +390,21 @@ class RatioCounter(Counter):
                 logging.warning("Found no objets for tile centered at {}".format(tile.coordinate))
                 logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_reference, loop_i+skipped_reference+skipped_field+1))
                 continue
+            if control_mask is None:
+                print(f"Couldn't find a mask in control field centered at: {tile.coordinate} ")
+                continue
             if control_mask is not None:
                 try:
                     control_catalog = control_catalog[control_mask]
                 except ValueError:
-                    print("Masking failed!")
-                    print(control_catalog)
-                    print(tile)
-                    print(control_catalog.coords)
                     skipped_reference += 1
                     continue
-
+            
                 if len(control_catalog) == 0:
                     skipped_reference += 1
                     continue
                 field_catalog = rotate(self._field_catalog, self._field_center, tile.coordinate)
+
                 field_catalog = field_catalog[control_mask]
             else:
                 field_catalog = self._field_catalog
@@ -413,7 +412,6 @@ class RatioCounter(Counter):
             if self._field_mask is not None:
                 control_catalog = rotate(control_catalog, tile.coordinate, self._field_center)
                 control_catalog = control_catalog[self._field_mask]
-            
 
 
             if len(field_catalog) == 0:
@@ -421,6 +419,8 @@ class RatioCounter(Counter):
                 logging.warning("Found no objects in field catalog after masking")
                 logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_field, loop_i+skipped_reference+skipped_field+1))
                 continue
+
+
             control_catalog = self.apply_periodic_filters(control_catalog, 'control')
             field_catalog = self.apply_periodic_filters(field_catalog, 'field')
             control_weights={}

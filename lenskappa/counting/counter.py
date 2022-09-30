@@ -105,12 +105,16 @@ class Counter(ABC):
 
         except AttributeError:
             return catalog
+        print(f"Filtering {catname} catalog. Initial length {len(catalog)}")
 
 
         for name, filter in filters.items():
             try:
                 if filter['which'] == 'all' or catname in filter['which']:
+                    init_ = len(catalog)
                     catalog = self.apply_filter(catalog, filter)
+                    final = len(catalog)
+                    print(f"Filter {name} removed {init_ - final} catalogs")
 
             except KeyError:
                 logging.error("Error: filter {} does not have a 'which' parameter".format(name))
@@ -354,6 +358,9 @@ class RatioCounter(Counter):
         while loop_i < num_samples:
 
             tile = self._reference_survey.generate_circular_tile(self._radius, *args, **kwargs)
+            pos = tile.skycoord[0]
+            print(pos)
+
             control_catalog = self._reference_survey.get_objects(tile, masked=self._mask, get_distance=True, dist_units = u.arcsec)
         
 

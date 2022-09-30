@@ -1,5 +1,6 @@
 from shapely import geometry
 from concurrent import futures
+import multiprocessing as mp
 
 import pandas as pd
 import numpy as np
@@ -15,6 +16,8 @@ from lenskappa.spatial import SkyRegion
 from lenskappa.catalog import SkyCatalog2D
 from lenskappa.catalog import StarMaskCollection, RegStarMask
 
+def get(x):
+    return x
 
 class HSCSurvey(Survey):
 
@@ -176,7 +179,12 @@ class HSCSurvey(Survey):
         self._cached_catalogs = {}
         if file:
             print("Reading in catalog for HSC field {}. This may take a while".format(self._field))
-            catalog = pd.read_csv(file)
+            gen = pd.read_csv(file, chunksize=10000)
+            with mp.Pool(8) as p:
+                results = p.map(get, gen)
+                results = [a.result for a in results]
+                
+            catalog = pd.concat(results)
             self._catalog = hsc_catalog(catalog, *args, **kwargs)
             print("Done reading in catalog.")
         else:

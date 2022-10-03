@@ -1,6 +1,7 @@
 from abc import abstractmethod, ABC
 from concurrent.futures import thread
 import multiprocessing as mp
+from operator import ge
 import numpy as np
 from shapely import geometry
 import multiprocess as mp
@@ -201,7 +202,7 @@ class Counter(ABC):
                 self._output.write_output(index=False)
                 last_notification = l
 
-        self._output.write_output(index=False)
+        self._weight_workerwrite_output(index=False)
         for i, process in enumerate(self._processes):
             print(f"Joined process {i}")
             process.join()
@@ -230,7 +231,7 @@ class Counter(ABC):
 
     def _write_output(self, weights):
         """
-        Writes output.
+        Writes weight_worker
         I/O should eventually be its own module
         """
         weights.to_csv(self._output_fname, index=False)
@@ -350,7 +351,7 @@ class RatioCounter(Counter):
         #If only using one thread, just run the weighting
         else:
             print("Starting weighting...")
-            for index, row in enumerate(self._get_weight_values(num_samples)):
+            for index, row in enumerate(self._get_weight_values(num_samples, *args, **kwargs)):
                 self._output.take_output(row)
                 if index and index % (num_samples/10) == 0:
                     print("Completed {} out of {} samples".format(index, num_samples))
@@ -362,11 +363,18 @@ class RatioCounter(Counter):
         """
         Generator that yields the weights
         """
+        tile = kwargs.get("tile", False)
+        if tile:
+            generate_tiles = False
+            num_samples = 1
+        else:
+            generate_tiles = True
         loop_i = 0
         skipped_reference = 0
         skipped_field = 0
         while loop_i < num_samples:
-            tile = self._comparison_region.generate_circular_tile(self._radius, *args, **kwargs)
+            if generate_tiles:
+                tile = self._comparison_region.generate_circular_tile(self._radius, *args, **kwargs)
             
             control_data = self._reference_survey.get_data_from_region(tile, ["catalog", "mask"])
             if control_data is None:
@@ -440,6 +448,9 @@ class RatioCounter(Counter):
             row = {'center': tile.coordinate, 'field_weights': field_weights, 'control_weights': control_weights}
             yield row
     
+    def _get_weigths_at_location(self, tile, *args, **kwargs):
+        pass
+
     def _generate_catalog_samples(self, sample_param, *args, **kwargs):
         #At present, we can only handle one sampled param at a time
         par = sample_param[0]

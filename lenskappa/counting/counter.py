@@ -377,7 +377,7 @@ class RatioCounter(Counter):
                 tile = self._comparison_region.generate_circular_tile(self._radius, *args, **kwargs)
             
             control_data = self._reference_survey.get_data_from_region(tile, ["catalog", "mask"])
-            if control_data is None:
+            if control_data is None or len(control_data["catalog"]) == 0:
                 skipped_reference += 1
                 logging.warning("Found no objets for tile centered at {}".format(tile.coordinate))
                 logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_reference, loop_i+skipped_reference+skipped_field+1))

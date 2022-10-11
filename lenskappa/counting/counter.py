@@ -202,7 +202,7 @@ class Counter(ABC):
                 self._output.write_output(index=False)
                 last_notification = l
 
-        self._weight_workerwrite_output(index=False)
+        self._output.write_output(index=False)
         for i, process in enumerate(self._processes):
             print(f"Joined process {i}")
             process.join()

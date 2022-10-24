@@ -30,6 +30,7 @@ class Counter(ABC):
         self._mask = mask
         self._comparison_region = comparison_region
         self._weight_params = {}
+        self.tnum = 0
         """
         Base class for running the weighted number counts.
         Requires two inputs
@@ -151,6 +152,10 @@ class Counter(ABC):
         #This needs a more elegant solution
         splits = self._split_comparison_region(num_workers)
         splits = [Region.polygon(s) for s in splits]
+        for s in splits:
+            overlaps = self._reference_survey._get_region_overlaps(s)
+            big_regions = [s_.name.split("_")[0] for s_ in overlaps]
+            n_overlaps = len(set(big_regions))
         numperthread = math.ceil(num_samples/(num_workers))
         self._queues = [mp.Queue() for _ in range(num_workers)]
         self._processes = [mp.Process(target=weight_worker, args=(numperthread, splits[i], self._queues[i], i, self) ) for i in range(num_workers) ]
@@ -213,6 +218,7 @@ class Counter(ABC):
         Worker function suitable for use in multithreaded runs.
         Expects a queue to communicate with the supervisor thread.
         """
+        self.tnum = thread_num
         weight_data = pd.DataFrame(columns=list(self._weightfns.keys()))
         for index, row in enumerate(self._get_weight_values(num_samples, thread_num = thread_num, globals=globals, *args, **kwargs)):
             weight_data = weight_data.append(row, ignore_index=True)
@@ -361,26 +367,69 @@ class RatioCounter(Counter):
 
     def _get_weight_values(self, num_samples, *args, **kwargs):
         """
-        Generator that yields the weights
+        Generator that yields the weights. This is done in a complicated way,
+        in order to conserve memory.
         """
-        tile = kwargs.get("tile", False)
-        if tile:
-            generate_tiles = False
-            num_samples = 1
-        else:
-            generate_tiles = True
+        
+        #Generate all the tiles we're going to use in advance
+        samples = self._comparison_region.generate_circular_tiles(self._radius, num_samples)
+
+        #Sort the samples by the region (or regions) that they fall into
+        samples = self.partition_samples(samples)
+        print(f"Thread {self.tnum} finished initializing...")
+        counts = [p.count("-") + 1 for p in samples.keys()]
+        singles = []
+
+        #We start with samples that fall onto multiple regions in the
+        #Reference survey 
+        for i, (regs, s) in enumerate(samples.items()):
+            if counts[i] == 1:
+                continue
+            regs_to_get = regs.split("-")
+            for s_ in self._get_samples(s, regs_to_get):
+                yield(s_)
+            for reg_ in regs_to_get:
+                #Now, get the samples that fall into a single one of the regions
+                if reg_ in singles:
+                    continue
+                try:
+                    samples_in_reg = samples[reg_]
+                except KeyError:
+                    continue
+                singles.append(reg_)
+                for s_ in self._get_samples(samples_in_reg, [reg_]):
+                    yield(s_)
+            #Now, we dump the data from those regions
+            self._reference_survey.dump_all()
+    
+        #Now we go through all the samples that fall in a single survey region 
+        #that were NOT covered before
+        for i, (reg, s) in enumerate(samples.items()):
+            if counts[i] != 1 or reg in singles:
+                continue
+            else:
+                for s_ in self._get_samples(s, [reg]):
+                    yield s_
+                self._reference_survey.dump_all()
+    
+    def _get_samples(self, samples, super_regions):
+        num_samples = len(samples)
+        rand = np.random.default_rng()
+        rand_low = 0
+        rand_high = len(super_regions)
+        def generate_extra_tile():
+            randint = rand.integers(rand_low, rand_high)
+            reg = super_regions[randint]
+            reg = self._reference_survey.get_region_by_name(reg)
+            return reg.generate_circular_tile(self._radius)
         loop_i = 0
-        skipped_reference = 0
-        skipped_field = 0
         while loop_i < num_samples:
-            if generate_tiles:
-                tile = self._comparison_region.generate_circular_tile(self._radius, *args, **kwargs)
+
+            tile = samples[loop_i]
             
             control_data = self._reference_survey.get_data_from_region(tile, ["catalog", "mask"])
             if control_data is None or len(control_data["catalog"]) == 0:
-                skipped_reference += 1
-                logging.warning("Found no objets for tile centered at {}".format(tile.coordinate))
-                logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_reference, loop_i+skipped_reference+skipped_field+1))
+                samples[loop_i] = generate_extra_tile()
                 continue
 
             control_catalog = control_data["catalog"]
@@ -388,29 +437,23 @@ class RatioCounter(Counter):
             distances = tile.coordinate.separation(control_catalog.coords).to(u.arcsec)
             control_catalog['r'] = distances
 
-
-
-
             if len(control_catalog) == 0:
                 #Sometimes the returned catalog will be empty, in which case
                 #we reject the sample
-                skipped_reference += 1
-                logging.warning("Found no objets for tile centered at {}".format(tile.coordinate))
-                logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_reference, loop_i+skipped_reference+skipped_field+1))
+                samples[loop_i] = generate_extra_tile()
                 continue
             if control_mask is None:
                 print(f"Couldn't find a mask in control field centered at: {tile.coordinate} ")
+                samples[loop_i] = generate_extra_tile()
                 continue
             if control_mask is not None:
                 try:
                     control_catalog = control_catalog[control_mask]
                 except ValueError:
-                    skipped_reference += 1
+                    samples[loop_i] = generate_extra_tile()
                     continue
             
-                if len(control_catalog) == 0:
-                    skipped_reference += 1
-                    continue
+
                 field_catalog = rotate(self._field_catalog, self._field_center, tile.coordinate)
 
                 field_catalog = field_catalog[control_mask]
@@ -422,15 +465,14 @@ class RatioCounter(Counter):
                 control_catalog = control_catalog[self._field_mask]
 
 
-            if len(field_catalog) == 0:
-                skipped_field += 1
-                logging.warning("Found no objects in field catalog after masking")
-                logging.warning("In this thread, {} of {} samples have failed for this reason".format(skipped_field, loop_i+skipped_reference+skipped_field+1))
-                continue
 
 
             control_catalog = self.apply_periodic_filters(control_catalog, 'control')
             field_catalog = self.apply_periodic_filters(field_catalog, 'field')
+            if len(field_catalog) == 0 or len(control_catalog) == 0:
+                samples[loop_i] = generate_extra_tile()
+                continue
+
             control_weights={}
             field_weights={}
             for name in self._weight_names:
@@ -447,9 +489,24 @@ class RatioCounter(Counter):
             loop_i += 1
             row = {'center': tile.coordinate, 'field_weights': field_weights, 'control_weights': control_weights}
             yield row
-    
-    def _get_weigths_at_location(self, tile, *args, **kwargs):
-        pass
+
+    def partition_samples(self, samples, *args, **kwargs):
+        overlaps = self._reference_survey.get_overlapping_region_names(samples)
+        partitions = {}
+        for i, sample in enumerate(samples):
+            overlap = overlaps[i]
+            if len(overlap) == 1:
+                okey = overlap[0]
+            else:
+                overlap.sort()
+                okey = "-".join(overlap)
+
+
+            if okey in partitions.keys():
+                partitions[okey].append(sample)
+            else:
+                partitions[okey] = [sample]
+        return partitions
 
     def _generate_catalog_samples(self, sample_param, *args, **kwargs):
         #At present, we can only handle one sampled param at a time

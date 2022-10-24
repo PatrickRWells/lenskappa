@@ -50,9 +50,3 @@ condition = 0
 [tidal]
 params = ['cat.m_gal', 'cat.r']
 condition = 0
-[convergence]
-params = ['cat.m_gal', 'cat.r']
-condition = 0
-[convergencehalo]
-params = ['cat.m_gal', 'cat.r', 'cat.z_gal']
-condition = 0

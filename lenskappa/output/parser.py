@@ -21,6 +21,7 @@ class weightsOutputParser(lenskappaOutputParser):
         field_weights = output['field_weights']
         control_weights = output['control_weights']
         np.seterr(invalid='raise')
+        np.seterr(divide='raise')
         return_vals = {'ra': center.ra, 'dec': center.dec}
 
         for weight_name, weight_values in field_weights.items():
@@ -33,10 +34,9 @@ class weightsOutputParser(lenskappaOutputParser):
                 field_weight = float(weight_values)
             except:
                 field_weight = np.sum(weight_values)
-
             try:
                 ratio = field_weight/control_weight
-            except:
+            except (ZeroDivisionError, FloatingPointError):
                 ratio = -1
             return_vals[weight_name] = [ratio]
 

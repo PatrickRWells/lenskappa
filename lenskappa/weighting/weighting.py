@@ -8,7 +8,7 @@ import numpy as np
 
 class weight:
 
-    def __init__(self, weightname, weight_config = None, params = []):
+    def __init__(self, weightname, weight_config = None, params = {}):
         self._name = weightname
         self._params = params
         if weight_config is None:
@@ -73,6 +73,7 @@ class weight:
             except:
                 print("Error: unable to find value for parameter {} required to calculate weight {}".format(parname, self._name))
                 exit()
+        
         weights = self._weightfn(catalog, **self._params)
         if meds and len(weights) != 0: #Second condition avoids crash
             weights = np.median(weights)*np.ones(len(weights), dtype=np.float64)

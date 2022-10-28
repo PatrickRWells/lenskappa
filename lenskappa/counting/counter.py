@@ -19,9 +19,12 @@ from lenskappa.utils.multithreading import MultiThreadObject
 from lenskappa.catalog import rotate
 from lenskappa import output
 
-from heinlein.dataset import Dataset
+from heinlein.dataset import Dataset, dataset_extension
 from heinlein.dtypes.catalog import Catalog
 from heinlein.region import BaseRegion, Region
+
+
+
 
 class Counter(ABC):
 
@@ -342,7 +345,7 @@ class RatioCounter(Counter):
             self._weight_names = list(self._weightfns.keys())
 
         columns = ["ra", "dec"] + self._weight_names
-        self._output = output.csvOutput(output_file, output.weightParser, columns)
+        self._output = output.csvOutput(output_file, output.weightRatioOutputParser, columns)
 
         #If no weights were loaded, terminate
         if self._weightfns is None:
@@ -560,12 +563,10 @@ class SingleCounter(Counter):
 
 
     def get_weights(self, weights = 'all', meds=False, aperture = 120*u.arcsec, sample_type='grid', output_file = "output.csv", threads = 1, output_positions = False, *args, **kwargs):
-        self._output_fname = output_file
-        self._validate_all(*args, **kwargs)
         if weights == 'all':
-            self._weightfns = weighting.load_all_weights()
+            self._weightfns = weighting.load_all_weights(self._weight_params)
         elif type(weights) is list:
-            self._weightfns = weighting.load_some_weights(weights)
+            self._weightfns = weighting.load_some_weights(weights, self._weight_params)
 
         if meds:
             weight_names = list(self._weightfns.keys())
@@ -576,46 +577,40 @@ class SingleCounter(Counter):
         else:
             self._weight_names = list(self._weightfns.keys())
 
+        output_cols = ["ra", "dec"] + self._weight_names
+        self._output = output.csvOutput(path=output_file, parser=output.singleWeightParser, columns=output_cols)
         if sample_type == 'grid':
             print("Starting weighting...")
 
-            self._get_weights_on_grid(aperture, output_file, output_positions = output_positions, *args, **kwargs)
+            self._get_weights_on_grid(aperture, *args, **kwargs)
         
-    def _get_weights_on_grid(self,aperture, output_file, output_positions = False, *args, **kwargs):
-        samples = self._reference_survey.has_samples()
-        if samples and len(samples) != 1:
-            samples = False
-        columns = copy(self._weight_names)
-        if output_positions:
-            columns.insert(0, "ra")
-            columns.insert(1, "dec")
-        df = pd.DataFrame(columns=columns)
-        for index, reg in enumerate(self._reference_survey.get_ciruclar_tile(aperture, *args, **kwargs)):
-            catalog = self._reference_survey.get_objects_in_region(reg)
-            if samples:
-                cat = catalog.generate_catalogs_from_samples(samples[0], *args, **kwargs)
-            else:
-                cat = [catalog]
-            
-            cat = [self.apply_periodic_filters(c, "reference") for c in cat]
+    def _get_weights_on_grid(self, aperture, overlap=1, *args, **kwargs):
+
+        grid = self._reference_survey.generate_grid(aperture, overlap)
+
+
+        for index, coord in enumerate(grid):
+            catalog = self._reference_survey.cone_search(coord, aperture)["catalog"]
+            cat_coords = catalog.coords
+            distances = coord.separation(cat_coords).to(u.arcsec)
+            catalog['r'] = distances
+
+            catalog = self.apply_periodic_filters(catalog, "reference")
             weights = {}
             for name in self._weight_names:
                 if 'meds' not in name:
-                    weights.update({name: [self._weightfns[name].compute_weight(c) for c in cat]})
+                    weights.update({name: self._weightfns[name].compute_weight(catalog)})
                     
                 else:
                     wname = name.split('_')[0]
                     #I'd much rather fold these into a single funtion call
-                    weights.update({name: [self._weightfns[wname].compute_weight(c, meds=True) for c in cat]})
-                
-            pos = reg.skycoord[0]
+                    weights.update({name: self._weightfns[wname].compute_weight(catalog, meds=True)})
 
 
-            row = self._parse_weight_values(weights, pos, output_positions)
-            df = df.append(row, ignore_index=True)
+            self._output.take_output({"center": coord, "weights": weights})
             if index % 100 == 0:
                 print("Completed {}".format(index))
-                df.to_csv(output_file, index=False)
+                self._output.write_output()
 
 
 

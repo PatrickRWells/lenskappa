@@ -12,7 +12,7 @@ class lenskappaOutputParser(ABC):
         pass
 
 
-class weightsOutputParser(lenskappaOutputParser):
+class weightRatioOutputParser(lenskappaOutputParser):
     def __init__(self, *args, **kwargs):
         pass
 
@@ -39,5 +39,26 @@ class weightsOutputParser(lenskappaOutputParser):
             except (ZeroDivisionError, FloatingPointError):
                 ratio = -1
             return_vals[weight_name] = [ratio]
+
+        return pd.DataFrame(return_vals, columns=return_vals.keys())
+
+class singleWeightOutputParser(lenskappaOutputParser):
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __call__(self, output, *args, **kwargs):
+        center = output['center']
+        field_weights = output['weights']
+        np.seterr(invalid='raise')
+        np.seterr(divide='raise')
+        return_vals = {'ra': center.ra, 'dec': center.dec}
+
+        for weight_name, weight_values in field_weights.items():
+            try:
+                field_weight = float(weight_values)
+            except:
+                field_weight = np.sum(weight_values)
+                
+            return_vals[weight_name] = [field_weight]
 
         return pd.DataFrame(return_vals, columns=return_vals.keys())

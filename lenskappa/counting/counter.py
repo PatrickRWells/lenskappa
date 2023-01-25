@@ -19,7 +19,7 @@ from lenskappa.utils.multithreading import MultiThreadObject
 from lenskappa.catalog import rotate
 from lenskappa import output
 
-from heinlein.dataset import Dataset, dataset_extension
+from heinlein.dataset import Dataset
 from heinlein.dtypes.catalog import Catalog
 from heinlein.region import BaseRegion, Region
 
@@ -345,7 +345,7 @@ class RatioCounter(Counter):
             self._weight_names = list(self._weightfns.keys())
 
         columns = ["ra", "dec"] + self._weight_names
-        self._output = output.csvOutput(output_file, output.weightRatioOutputParser, columns)
+        self._output = output.csvOutput(output_file, output.weightParser, columns)
 
         #If no weights were loaded, terminate
         if self._weightfns is None:
@@ -429,7 +429,7 @@ class RatioCounter(Counter):
         while loop_i < num_samples:
 
             tile = samples[loop_i]
-            
+            print(tile.center)
             control_data = self._reference_survey.get_data_from_region(tile, ["catalog", "mask"])
             if control_data is None or len(control_data["catalog"]) == 0:
                 samples[loop_i] = generate_extra_tile()
@@ -439,7 +439,8 @@ class RatioCounter(Counter):
             control_mask = control_data["mask"]
             distances = tile.coordinate.separation(control_catalog.coords).to(u.arcsec)
             control_catalog['r'] = distances
-
+            print(f"Control catalog starts with {len(control_catalog)}")
+            print(f"Field catalog starts with {len(self._field_catalog)}")
             if len(control_catalog) == 0:
                 #Sometimes the returned catalog will be empty, in which case
                 #we reject the sample
@@ -451,24 +452,34 @@ class RatioCounter(Counter):
                 continue
             if control_mask is not None:
                 try:
+                    len_i = len(control_catalog)
                     control_catalog = control_catalog[control_mask]
+                    len_f = len(control_catalog)
+                    print(f"Control mask removed {len_i - len_f} from its catalog.")
                 except ValueError:
                     samples[loop_i] = generate_extra_tile()
                     continue
             
 
                 field_catalog = rotate(self._field_catalog, self._field_center, tile.coordinate)
-
+                len_i = len(field_catalog)
                 field_catalog = field_catalog[control_mask]
+                len_f = len(field_catalog)
+                print(f"Control mask removed {len_i - len_f} from field catalog.")
+
             else:
                 field_catalog = self._field_catalog
 
             if self._field_mask is not None:
+                len_i = len(control_catalog)
                 control_catalog = rotate(control_catalog, tile.coordinate, self._field_center)
                 control_catalog = control_catalog[self._field_mask]
+                len_f = len(control_catalog)
+                print(f"Field mask removed {len_i - len_f} from control catalog.")
 
-
-
+            if len(control_catalog) == 0 or len(field_catalog) == 0:
+                samples[loop_i] = generate_extra_tile()
+                continue
 
             control_catalog = self.apply_periodic_filters(control_catalog, 'control')
             field_catalog = self.apply_periodic_filters(field_catalog, 'field')

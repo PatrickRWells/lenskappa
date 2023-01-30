@@ -19,7 +19,7 @@ from lenskappa.utils.multithreading import MultiThreadObject
 from lenskappa.catalog import rotate
 from lenskappa import output
 
-from heinlein.dataset import Dataset, dataset_extension
+from heinlein.dataset import Dataset
 from heinlein.dtypes.catalog import Catalog
 from heinlein.region import BaseRegion, Region
 
@@ -368,7 +368,7 @@ class RatioCounter(Counter):
 
             self._output.write_output(index=False)
 
-    def _get_weight_values(self, num_samples, *args, **kwargs):
+    def _get_weight_values(self, num_samples, thread_num = 0, *args, **kwargs):
         """
         Generator that yields the weights. This is done in a complicated way,
         in order to conserve memory.
@@ -379,8 +379,8 @@ class RatioCounter(Counter):
 
         #Sort the samples by the region (or regions) that they fall into
         samples = self.partition_samples(samples)
-        print(f"Thread {self.tnum} finished initializing...")
-        counts = [p.count("-") + 1 for p in samples.keys()]
+        print(f"Thread {thread_num} finished initializing...")
+        counts = [p.count("/") + 1 for p in samples.keys()]
         singles = []
 
         #We start with samples that fall onto multiple regions in the
@@ -388,7 +388,7 @@ class RatioCounter(Counter):
         for i, (regs, s) in enumerate(samples.items()):
             if counts[i] == 1:
                 continue
-            regs_to_get = regs.split("-")
+            regs_to_get = regs.split("/")
             for s_ in self._get_samples(s, regs_to_get):
                 yield(s_)
             for reg_ in regs_to_get:
@@ -452,6 +452,8 @@ class RatioCounter(Counter):
             if control_mask is not None:
                 try:
                     control_catalog = control_catalog[control_mask]
+                    if len(control_catalog) == 0:
+                        raise ValueError
                 except ValueError:
                     samples[loop_i] = generate_extra_tile()
                     continue
@@ -502,7 +504,7 @@ class RatioCounter(Counter):
                 okey = overlap[0]
             else:
                 overlap.sort()
-                okey = "-".join(overlap)
+                okey = "/".join(overlap)
 
 
             if okey in partitions.keys():

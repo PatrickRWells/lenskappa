@@ -156,7 +156,7 @@ class Counter(ABC):
         splits = self._split_comparison_region(num_workers)
         splits = [Region.polygon(s) for s in splits]
         for s in splits:
-            overlaps = self._reference_survey._get_region_overlaps(s)
+            overlaps = self._reference_survey.get_region_overlaps(s)
             big_regions = [s_.name.split("_")[0] for s_ in overlaps]
             n_overlaps = len(set(big_regions))
         numperthread = math.ceil(num_samples/(num_workers))

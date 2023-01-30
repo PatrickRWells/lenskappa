@@ -345,7 +345,7 @@ class RatioCounter(Counter):
             self._weight_names = list(self._weightfns.keys())
 
         columns = ["ra", "dec"] + self._weight_names
-        self._output = output.csvOutput(output_file, output.weightRatioOutputParser, columns)
+        self._output = output.csvOutput(output_file, output.weightParser, columns)
 
         #If no weights were loaded, terminate
         if self._weightfns is None:

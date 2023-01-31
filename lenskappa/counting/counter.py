@@ -156,7 +156,7 @@ class Counter(ABC):
         splits = self._split_comparison_region(num_workers)
         splits = [Region.polygon(s) for s in splits]
         for s in splits:
-            overlaps = self._reference_survey._get_region_overlaps(s)
+            overlaps = self._reference_survey.get_region_overlaps(s)
             big_regions = [s_.name.split("_")[0] for s_ in overlaps]
             n_overlaps = len(set(big_regions))
         numperthread = math.ceil(num_samples/(num_workers))
@@ -368,7 +368,7 @@ class RatioCounter(Counter):
 
             self._output.write_output(index=False)
 
-    def _get_weight_values(self, num_samples, *args, **kwargs):
+    def _get_weight_values(self, num_samples, thread_num = 0, *args, **kwargs):
         """
         Generator that yields the weights. This is done in a complicated way,
         in order to conserve memory.
@@ -379,8 +379,8 @@ class RatioCounter(Counter):
 
         #Sort the samples by the region (or regions) that they fall into
         samples = self.partition_samples(samples)
-        print(f"Thread {self.tnum} finished initializing...")
-        counts = [p.count("-") + 1 for p in samples.keys()]
+        print(f"Thread {thread_num} finished initializing...")
+        counts = [p.count("/") + 1 for p in samples.keys()]
         singles = []
 
         #We start with samples that fall onto multiple regions in the
@@ -388,7 +388,7 @@ class RatioCounter(Counter):
         for i, (regs, s) in enumerate(samples.items()):
             if counts[i] == 1:
                 continue
-            regs_to_get = regs.split("-")
+            regs_to_get = regs.split("/")
             for s_ in self._get_samples(s, regs_to_get):
                 yield(s_)
             for reg_ in regs_to_get:
@@ -452,10 +452,9 @@ class RatioCounter(Counter):
                 continue
             if control_mask is not None:
                 try:
-                    len_i = len(control_catalog)
                     control_catalog = control_catalog[control_mask]
-                    len_f = len(control_catalog)
-                    print(f"Control mask removed {len_i - len_f} from its catalog.")
+                    if len(control_catalog) == 0:
+                        raise ValueError
                 except ValueError:
                     samples[loop_i] = generate_extra_tile()
                     continue
@@ -513,7 +512,7 @@ class RatioCounter(Counter):
                 okey = overlap[0]
             else:
                 overlap.sort()
-                okey = "-".join(overlap)
+                okey = "/".join(overlap)
 
 
             if okey in partitions.keys():

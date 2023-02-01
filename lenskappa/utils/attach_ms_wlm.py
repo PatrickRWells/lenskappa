@@ -69,6 +69,7 @@ def attach_wlm(wnc_path: Path, redshift: float, wlm_path: Path = None, inplace=T
     field_labels = list(product(field_labels, field_labels))
 
     wnc_files = [f for f in wnc_path.glob("*.csv")]
+    wnc_dfs = []
 
     for field in field_labels:
         print(f"Working on field {field}")
@@ -88,14 +89,14 @@ def attach_wlm(wnc_path: Path, redshift: float, wlm_path: Path = None, inplace=T
 
         wnc_data["kappa"] = kappas
         wnc_data["gamma"] = gammas
-
+        wnc_dfs .append(wnc_data)
         if inplace:
             wnc_data.to_csv(wnc_file[0], index=False)
         else:
             output_fname = wnc_file[0].stem + "_with_kg.csv"
             output_path = wnc_file[0].parents[0] / output_fname
             wnc_data.to_csv(output_path, index=True)
-
+    return wnc_dfs
 
 def load_field_wlm(field_label, plane_numbers, wlm_path):
     possible_filetypes = [".kappa", ".gamma_1", ".gamma_2", ".Phi"]

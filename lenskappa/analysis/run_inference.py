@@ -1,12 +1,18 @@
 import json
+import toml
 from lenskappa.analysis import kappa_inference, kappaSet, inference
 from pathlib import Path
 import sys
 
 def run_inference():
-    config_path = sys.argv[1]
+    config_path = Path(sys.argv[1])
+    if config_path.suffix == ".toml":
+        loader = toml.load
+    elif config_path.suffix == ".json":
+        loader = json.load
+
     with open(config_path) as f:
-        config_data = json.load(f)
+        config_data = loader(f)
     
     base_inference = config_data["base-inference"]
     if base_inference == "kappa_set":

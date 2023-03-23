@@ -359,7 +359,7 @@ class RatioCounter(Counter):
 
         #If only using one thread, just run the weighting
         else:
-            print("Starting weighting...")
+            print("Starting weighting.....")
             for index, row in enumerate(self._get_weight_values(num_samples, *args, **kwargs)):
                 self._output.take_output(row)
                 if index and index % (num_samples/10) == 0:
@@ -378,6 +378,7 @@ class RatioCounter(Counter):
         samples = self._comparison_region.generate_circular_tiles(self._radius, num_samples)
 
         #Sort the samples by the region (or regions) that they fall into
+        print("Partitioning samples...")
         samples = self.partition_samples(samples)
         print(f"Thread {thread_num} finished initializing...")
         counts = [p.count("/") + 1 for p in samples.keys()]
@@ -429,7 +430,6 @@ class RatioCounter(Counter):
         while loop_i < num_samples:
 
             tile = samples[loop_i]
-            print(tile.center)
             control_data = self._reference_survey.get_data_from_region(tile, ["catalog", "mask"])
             if control_data is None or len(control_data["catalog"]) == 0:
                 samples[loop_i] = generate_extra_tile()
@@ -439,8 +439,6 @@ class RatioCounter(Counter):
             control_mask = control_data["mask"]
             distances = tile.coordinate.separation(control_catalog.coords).to(u.arcsec)
             control_catalog['r'] = distances
-            print(f"Control catalog starts with {len(control_catalog)}")
-            print(f"Field catalog starts with {len(self._field_catalog)}")
             if len(control_catalog) == 0:
                 #Sometimes the returned catalog will be empty, in which case
                 #we reject the sample
@@ -458,13 +456,12 @@ class RatioCounter(Counter):
                 except ValueError:
                     samples[loop_i] = generate_extra_tile()
                     continue
-            
+                    
 
                 field_catalog = rotate(self._field_catalog, self._field_center, tile.coordinate)
                 len_i = len(field_catalog)
                 field_catalog = field_catalog[control_mask]
                 len_f = len(field_catalog)
-                print(f"Control mask removed {len_i - len_f} from field catalog.")
 
             else:
                 field_catalog = self._field_catalog
@@ -474,18 +471,19 @@ class RatioCounter(Counter):
                 control_catalog = rotate(control_catalog, tile.coordinate, self._field_center)
                 control_catalog = control_catalog[self._field_mask]
                 len_f = len(control_catalog)
-                print(f"Field mask removed {len_i - len_f} from control catalog.")
 
             if len(control_catalog) == 0 or len(field_catalog) == 0:
                 samples[loop_i] = generate_extra_tile()
                 continue
+
+
 
             control_catalog = self.apply_periodic_filters(control_catalog, 'control')
             field_catalog = self.apply_periodic_filters(field_catalog, 'field')
             if len(field_catalog) == 0 or len(control_catalog) == 0:
                 samples[loop_i] = generate_extra_tile()
                 continue
-
+            
             control_weights={}
             field_weights={}
             for name in self._weight_names:

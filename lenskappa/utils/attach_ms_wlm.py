@@ -13,8 +13,12 @@ import pandas as pd
 from itertools import product
 import numpy as np
 import astropy.units as u
+import multiprocessing as mp
+from functools import partial
+import re
+import collections
 
-def attach_wlm(wnc_path: Path, redshift: float, wlm_path: Path = None, inplace=True, *args, **kwargs):
+def attach_wlm(wnc: dict, redshift: float, wlm_path: Path = None,  wnc_path: Path = None, inplace=True, threads = 1,*args, **kwargs):
     """
     Arguments:
     
@@ -35,7 +39,19 @@ def attach_wlm(wnc_path: Path, redshift: float, wlm_path: Path = None, inplace=T
         if p is None:
             raise FileNotFoundError("No path found for weak lensing maps")
         wlm_path = p
-    
+    wnc_files = {}
+    if wnc_path is not None:
+        wnc_file_paths = [f for f in wnc_path.glob("*.csv")]
+        file_fields = [re.search(r"\d_\d", f.name).group() for f in wnc_file_paths]
+        file_fields = [tuple(int(val) for val in f.split("_")) for f in file_fields]
+        wnc_files = {field: path for (field, path) in zip(file_fields, wnc_file_paths) if field in wnc.keys()}
+
+        #To ensure order is the same for easier mapping
+        wnc_files = {field: wnc_files[field] for field in wnc.keys()}
+
+        
+
+
     main_path = Path(lenskappa.__file__).parents[0]
     ms_distances_path = main_path / "datasets" / "surveys" / "ms" / "Millennium_distances.txt"
     ms_distances = pd.read_csv(ms_distances_path, delim_whitespace=True)
@@ -65,38 +81,40 @@ def attach_wlm(wnc_path: Path, redshift: float, wlm_path: Path = None, inplace=T
         break
     
     plane_numbers = ms_distances["PlaneNumber"][ms_redshifts.isin(plane_redshift)]
-    field_labels = list(range(8))
-    field_labels = list(product(field_labels, field_labels))
 
-    wnc_files = [f for f in wnc_path.glob("*.csv")]
-    wnc_dfs = []
+    f_ = partial(load_single_field, plane_numbers = plane_numbers, wlm_path = wlm_path)
+    with mp.Pool(threads) as p:
+        inputs = zip(wnc.values(), wnc_files.values(), wnc.keys())
+        wnc_dfs = p.map(f_, inputs)
+    if any([df is not None for df in wnc_dfs]):
+        return pd.concat([df for df in wnc_dfs if df is not None])
+    return pd.DataFrame()
 
-    for field in field_labels:
+def load_single_field(input_tuple, plane_numbers, wlm_path):
+        wnc = input_tuple[0]
+        wnc_file = input_tuple[1]
+        field = input_tuple[2]
         print(f"Working on field {field}")
-        wnc_file = [f for f in wnc_files if f"{field[0]}_{field[1]}" in f.name]
-        if len(wnc_file) != 1:
-            print(f"Unable to find a uniuqe set of weighted number counts for field {field}")
-            exit()
-        wnc_data = pd.read_csv(wnc_file[0])
         wl_data = load_field_wlm(field, plane_numbers, wlm_path)
-        coords = list(zip(wnc_data["ra"], wnc_data["dec"]))
+        if wl_data is None:
+            return
+        coords = list(zip(wnc["ra"], wnc["dec"]))
         indices = [get_index_from_position(*c) for c in coords]
         index_arrays = tuple(map(list, zip(*indices)))
+        if not all([np.any(d["kappa"]) for d in wl_data.values()]):
+            print(f"Warning: Tried to average two plains but they do not both have weak lensing maps for field {field}")
+            return
         kappa_total = np.sum([d['kappa'] for d in wl_data.values()], axis = 0) / len(wl_data)
         gamma_total = np.sum([d['gamma'] for d in wl_data.values()], axis = 0) / len(wl_data)
+        if not kappa_total.any():
+            return
         kappas = kappa_total[index_arrays[0], index_arrays[1]]
         gammas = gamma_total[index_arrays[0], index_arrays[1]]
 
-        wnc_data["kappa"] = kappas
-        wnc_data["gamma"] = gammas
-        wnc_dfs .append(wnc_data)
-        if inplace:
-            wnc_data.to_csv(wnc_file[0], index=False)
-        else:
-            output_fname = wnc_file[0].stem + "_with_kg.csv"
-            output_path = wnc_file[0].parents[0] / output_fname
-            wnc_data.to_csv(output_path, index=True)
-    return wnc_dfs
+        wnc["kappa"] = kappas
+        wnc["gamma"] = gammas
+        wnc.to_csv(wnc_file, index=False)
+        return wnc
 
 def load_field_wlm(field_label, plane_numbers, wlm_path):
     possible_filetypes = [".kappa", ".gamma_1", ".gamma_2", ".Phi"]
@@ -113,24 +131,49 @@ def load_field_wlm(field_label, plane_numbers, wlm_path):
             return {"kappa": kappa, "gamma": gamma}
         elif all([any([str(pn) in name for name in dirnames]) for pn in plane_numbers]):
             #Found a directory for all the requested planes
+            if not check_for_wlm(plane_numbers, field_label, wlm_path):
+                return
             for pn in plane_numbers:
                 plane_dir = [d for d in dirs if str(pn) in d.name]
                 if len(plane_dir) != 1:
-                    print("OOPS!")
+                    print(f"Found multiple directories for plane {pn}!")
                     exit()
                 data.update({pn: load_field_wlm(field_label, [pn], plane_dir[0])})
             return data
         else:
-            print("Unable to understand structure of weak lensing map directory")
-            exit()
+            print(f"No .kappa and .gamma files found for field {field_label}")
+            return
+
+def check_for_wlm(plane_numbers, field_label, wlm_path):
+    """
+    Checks to see if weak lensing maps exist for the given field for all
+    redshift planes passed to this function.
+
+    Returns True/False
+    """
+    dirs = [path for path in wlm_path.glob("*") if path.is_dir()]
+    basename = f"GGL_los_8_{field_label[0]}_{field_label[1]}_N_4096_ang_4_rays_to_plane"
+    for pn in plane_numbers:        
+        plane_dir = [d for d in dirs if str(pn) in d.name]
+        if len(plane_dir) != 1:
+            print(f"Found multiple directories for plane {pn}!")
+            return False
+        plane_path = wlm_path / plane_dir[0]
+        files = [file for file in plane_path.glob("*.kappa") if basename in file.stem]
+        if len(files) != 1:
+            print(f"Found wrong number of files for kappa map for field {field_label}")
+            return False
+    
+    return True
+
+
 
 def load_kappa(field_label, path):
     basename = f"GGL_los_8_{field_label[0]}_{field_label[1]}_N_4096_ang_4_rays_to_plane"
     files = [file for file in path.glob("*.kappa") if basename in file.stem]
     if len(files) != 1:
         print(f"Found wrong number of files for kappa map for field {field_label}")
-        exit()
-
+        return []
     kf = files[0]
     kappa =  np.fromfile(kf, np.float32).reshape((4096, 4096))
     return kappa
@@ -141,10 +184,8 @@ def load_gamma(field_label, path):
     gamma1_files = [file for file in path.glob("*.gamma_1") if basename in file.stem]
     gamma2_files = [file for file in path.glob("*.gamma_2") if basename in file.stem]
     if len(gamma1_files) != 1 or len(gamma2_files) != 1:
-        print(gamma1_files)
-        print(gamma2)
         print(f"Found wrong number of gamma files for field {field_label}")
-        exit()
+        return []
     gamma1 = np.fromfile(gamma1_files[0], np.float32).reshape((4096, 4096))
     gamma2 = np.fromfile(gamma2_files[0], np.float32).reshape((4096, 4096))
     return np.sqrt(gamma1**2 + gamma2**2)

@@ -72,9 +72,6 @@ def compute_pdfs(weight_pdf, ms_partitions, kappas, kappa_bins, threads = 1):
     results = np.array([r*weight_pdf[tuple(idxs[i])] for i, r in enumerate(results)])
     pdf = np.sum(results, axis=0)
 
-    import matplotlib.pyplot as plt
-    plt.plot(kappa_bins[:-1], pdf)
-    plt.show()
     return pdf
 
 @numba.njit

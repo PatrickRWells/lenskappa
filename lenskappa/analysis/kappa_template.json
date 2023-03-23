@@ -1,0 +1,35 @@
+{
+    "name": "kappa",
+    "transformations" : {
+        "load_wnc" : {
+            "dependencies": null,
+            "needed-parameters": ["wnc_path"]
+        },
+        "load_ms_wnc" : {
+            "dependencies": null,
+            "needed-parameters": ["ms_wnc_path"]
+        },
+        "attach_ms_wlm" : {
+            "dependencies": {"load_ms_wnc": "ms_wnc"},
+            "needed-parameters": ["z_s", "wlm_path", "ms_wnc_path"]
+        },
+        "build_wnc_distribution" : {
+            "dependencies": {"load_wnc": "wnc"},
+            "needed-parameters": ["weights"],
+            "optional-parameters": ["weights_min", "weights_max", "bins_per_dim"]
+        },
+        "partition_ms_weights" : {
+            "dependencies": {"attach_ms_wlm": "ms_weights_wwlm", "build_wnc_distribution": "wnc_distribution"},
+            "needed-parameters": ["weights"]
+        },
+        "compute_pdfs" : {
+            "dependencies": {
+                "partition_ms_weights": "ms_weight_partitions",
+                "build_wnc_distribution": "wnc_distribution",
+                "attach_ms_wlm": "ms_weights_wwlm"
+            },
+            "optional-parameters": ["kappa_bins", "output_path"],
+            "is-output": true
+        }
+    }
+}

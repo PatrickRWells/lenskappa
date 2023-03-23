@@ -1,21 +1,24 @@
 [tool.poetry]
 name = "lenskappa"
-version = "0.4.3"
+version = "0.5.0"
 description = ""
 authors = ["Patrick Wells <pwells@ucdavis.edu>"]
 
 [tool.poetry.dependencies]
-python = "^3.8,<3.11git"
+python = "^3.8"
 numpy = "^1.22.3"
 pandas = "^1.4.1"
 Shapely = "^1.8.1"
 astropy = "^5.0.3"
 toml = "^0.10.2"
-regions = "^0.6"
+regions = "0.7"
 appdirs = "^1.4.4"
 scipy = "^1.8.0"
 heinlein = "^0.4.0"
 multiprocess = "^0.70.13"
+
+[tool.poetry.scripts]
+lenskappa_inference = "lenskappa.analysis.run_inference:run_inference"
 
 [tool.poetry.dev-dependencies]
 

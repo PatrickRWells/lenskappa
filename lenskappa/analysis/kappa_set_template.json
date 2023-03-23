@@ -1,0 +1,19 @@
+{
+    "name": "kappa_set",
+    "transformations": {
+        "build_analyses" : {
+            "dependencies": null,
+            "needed-parameters": [
+                "wnc_base_path", "ms_wnc_base_path",
+                "wlm_base_path", "output_base_path",
+                "wnc_base_names", "weights", "nweights",
+                "z_s"
+            ],
+            "optional-parameters": ["base_weights"]
+        },
+        "run_analyses": {
+            "dependencies": {"build_analyses": "analyses"},
+            "is-output": true
+        }
+    }
+}

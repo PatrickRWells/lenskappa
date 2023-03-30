@@ -7,8 +7,8 @@ from networkx import draw, all_simple_paths
 from pathlib import Path
 import toml
 from functools import reduce 
-
-
+from lenskappa.locations import LENSKAPPA_CONFIG_LOCATION
+import json
 class InferenceException(Exception):
     pass
 
@@ -37,6 +37,8 @@ def build_inference(config, basic_config, module):
     final_cfg = basic_config | config
     return Inference(transformations, final_cfg)
 
+with open(LENSKAPPA_CONFIG_LOCATION / "base_inference.json", "r") as f:
+    base_inference_config = json.load(f)
 class Inference:
     """
     The inference class is a high-level class for transforming
@@ -49,6 +51,7 @@ class Inference:
     parameters as needed. "Transformation" is a very general term here.
     It could refer to simply loading data from disk, for exampl.e
     """
+    base_inference_config = base_inference_config
     def __init__(self, transformations: Dict[str, Transformation], params: dict):
         self.transformations = transformations
         self.params = params
@@ -75,7 +78,8 @@ class Inference:
             raise InferenceException("Inferences must include at least one output transformation")
         
         self.build_dependency_graph()
-        self.check_for_params()
+        self.check_params()
+        self.verify_params()
 
     def build_dependency_graph(self):
         """
@@ -132,10 +136,10 @@ class Inference:
             dependencies = self.dependency_graph.predecessors(transformation)
             self.predecessors.update({transformation: dependencies})
 
-    def check_for_params(self):
+    def check_params(self):
         """
         Checks to see that all required parameters are present
-        in self.parameters
+        in self.parameters, and that those parameters are valid
 
         Throws an error if a particular parameter is not found.
         
@@ -145,10 +149,20 @@ class Inference:
             needed_params = self.params["transformations"][transformation].get("needed-parameters", [])
             self.needed_params = self.needed_params.union(needed_params)
         
+        self.verify_params()
         found_params = set(self.params["parameters"].keys())
+
         if (missing := self.needed_params - found_params):
             missing = ",".join(missing)
             raise InferenceException(f"Inference is missing required parameters {missing}")
+    
+    def verify_params(self):
+        for param in self.needed_params:
+            if param in self.base_inference_config["reserved-keys"]:
+                raise InferenceException(f"Key \"{param}\" is a reserved keyword and cannot be used as"\
+                                          " a parameter in an analysis definition.")
+
+
 
     def run_inference(self):
         """

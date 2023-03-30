@@ -3,9 +3,10 @@ from networkx import DiGraph, simple_cycles, isolates, draw
 from lenskappa.analysis.transformation import Transformation
 import matplotlib.pyplot as plt
 from networkx.drawing.nx_agraph import to_agraph
-from networkx import draw
+from networkx import draw, all_simple_paths
 from pathlib import Path
 import toml
+from functools import reduce 
 
 
 class InferenceException(Exception):
@@ -56,6 +57,9 @@ class Inference:
                                          " for each transformation in the \"transformations\" input dictonary"\
                                          " (and vice-versa).")
         self.verify_inference()
+        self.internal_outputs = {}
+        self.has_run = {name: False for name in self.transformations}
+
 
 
     def verify_inference(self):
@@ -120,6 +124,14 @@ class Inference:
         isolated_transformation = list(isolates(self.dependency_graph))
         if isolated_transformation:
             raise InferenceException("Inference contains an isolated step")
+        self.predecessors = {}
+
+        # Just keep track of everything that needs to run before this transformation
+        # This is used for two different functions, so we just store it. 
+        for transformation in self.transformations:
+            dependencies = self.dependency_graph.predecessors(transformation)
+            self.predecessors.update({transformation: dependencies})
+
     def check_for_params(self):
         """
         Checks to see that all required parameters are present
@@ -149,8 +161,6 @@ class Inference:
         to see if its dependencies HAVE been run, and run it if so. Once everything
         has been run once, we break.
         """
-        self.internal_outputs = {}
-        self.has_run = {name: False for name in self.transformations}
 
         for transformation in self.starts:
             self.run_transformation(transformation)
@@ -158,8 +168,8 @@ class Inference:
             for transformation in self.transformations:
                 if self.has_run[transformation]:
                     continue
-                dependencies = self.dependency_graph.predecessors(transformation)
-                if all([k in self.internal_outputs.keys() for k in dependencies]):
+                dependencies = self.predecessors[transformation]
+                if all([self.has_run[k] for k in dependencies]):
                     self.run_transformation(transformation)
             if all(self.has_run.values()):
                 break
@@ -194,6 +204,64 @@ class Inference:
         transformation_output = self.transformations[name](**arguments)
         self.internal_outputs.update({name: transformation_output})
         self.has_run[name] = True
+
+    def run_to(self, transformation_name: str):
+        """
+        Run this analysis up to and including a particular transformation. This will
+        determine the shortest path that includes all prerequisite transformations.
+        In other words, it will do the least amount of work possible to get to this 
+        transformation. If you then call "run," the analysis will pick up
+        where it left off. Alternatively, call "run_to" again to advance the analysis
+        in steps.
+        """
+        if transformation_name not in self.transformations:
+            raise KeyError(f"Transformation {transformation_name} not found in this analysis!")
+
+        #If this transformation has no prereqs, just run it
+        if transformation_name in self.starts:
+            self.run_transformation(transformation_name)
+            return self.internal_outputs[transformation_name]
+        
+        #If this transformation is the only output transformation, throw an error
+        if transformation_name in self.outputs and len(self.outputs) == 0:
+            raise InferenceException(f"Running to transformation {transformation_name} would require running"\
+                                    "the full analysis! Use \"run_analysis\" instead.")
+        
+        #Otherwise, we determine which transformations we need to run first,
+        #and run those
+        necessary_paths = []
+        for start in self.starts:
+            necessary_paths.extend(list(all_simple_paths(self.dependency_graph, start, transformation_name)))
+        #Get the nodes in these paths that are actually unique
+        unique_transformations = reduce(lambda l, r: set(l).union(r), necessary_paths )
+        while True:
+            for transformation in unique_transformations:
+                if self.has_run[transformation]:
+                    continue
+                dependencies = self.predecessors[transformation]
+                if all([self.has_run[k] for k in dependencies]):
+                    self.run_transformation(transformation)
+            if self.has_run[transformation_name]:
+                break
+        return self.internal_outputs[transformation_name]
+
+    def reset(self):
+        """
+        Completely reset an inference, as though nothing has run. Does
+        not discard the dependency graph and related products.
+        This cannot be undone, so use carefully.
+
+        My use case involved a transformation that pulls data from a secondary
+        source and saves it to one of the other input files, but requires user
+        input to do so. If I would like to run many of these at once, I want
+        the user to be able to provide these inputs all at the beginning of the
+        analysis, rather than periodically throughout the (potentially very long)
+        runtime. The transformation checks to see if this copy has already happened,
+        so we reset and run the whole analysis a second time when no input is required.
+        """
+        self.internal_outputs = {}
+        self.has_run = {name: False for name in self.transformations}
+
 
     def cleanup(self):
         if len(self.outputs) == 1:

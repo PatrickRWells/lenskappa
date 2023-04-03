@@ -206,6 +206,8 @@ class Inference:
         arguments = {}
         for dep in self.dependency_graph.predecessors(name):
             alias = self.params["transformations"][name]["dependencies"][dep]
+            if not alias:
+                continue
             output = self.internal_outputs[dep]
             arguments.update({alias: output})
         needed_params = self.params["transformations"][name].get("needed-parameters", [])

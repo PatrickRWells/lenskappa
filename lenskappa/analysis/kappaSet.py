@@ -6,6 +6,47 @@ from lenskappa.analysis import inference
 from lenskappa.analysis.transformation import Transformation
 import json
 
+"""
+A kappa set is a series of kappa inferences done on a single system.
+The analysis can be done with several combinations of weights.
+
+Parameters
+----------
+wnc_base_names: list
+    The base names of the combination of limiting magnitude and aperture
+    being considered. These names should be formatted as {limmag}_{aperture},
+    and will be used to discover the relevant files for the field itself and the
+    millennium simulation.
+wnc_base_path: Path
+    The base path where the weighted number counts for the system are located.
+    They should be csvs with the same basenames discussed above. 
+ms_wnc_base_path: Path
+    The base path where the weighted number counts from the simulation are located.
+    They should be placed in folders with the same base name discussed above
+wlm_base_path: Path
+    The base path where the weak lensing maps are located. Should be put in folders
+    by redshift plane, named "PlaneXX" where XX is the plane number.
+output_base_path: Path
+    The location to place the outputs. Outputs will be placed in folders with the
+    same base name discussed above, without file names dependent on the weights
+    being used.
+weights: list
+    The list of weights to select from when building inferences.
+nweights: int
+    The number of weights from the weights list to use in each inference. For 
+    each inference, the weights used will be any weights passed into "base-weights",
+    plus nweights from the weights list. 
+z_s: float
+    The redshift of this lens. This is required for selecting the redshift plane
+    to use for the weak lensing maps.
+
+base_weights: list, default = None
+    The list of weights that will be used for every inference in the set. Optional.
+
+
+"""
+
+
 class build_analyses(Transformation):
     def __call__(self, *args, **kwargs):
         return self.build_analyses(*args, **kwargs)

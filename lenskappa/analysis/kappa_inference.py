@@ -12,6 +12,40 @@ from itertools import combinations
 import pickle
 
 
+"""
+This analysis represents a single kappa inference,
+using a particular set of weights.
+
+Parameters
+----------
+
+wnc_path: Path
+    The path to the weighted number counts for the lens system. Should
+    be stored as a CSV
+ms_wnc_path: Path
+    The path to the weighted number counts from the simulation. Should
+    be a folder with (potentially) several files
+weights: list
+    The list of weights to use in the inference
+z_s: float
+    The source redshift. 
+weights_min: float or dict, default = 0
+    The lowest value of weights to include in the inference. If a float,
+    this value will be used for all weights. If dictionary, should
+    have an entry for each weight and look like {"weight-name": min-value}
+weights_max: float or dict, default = 3.0
+    The highest value of the weights to include in the inference, using the same
+    format as weights_min
+bins_per_dim: int, default = 100
+    The number of bins to partition each weight into. The actual number
+    of bins will be bins_per_dim^n_weights
+kappa_bins: list[float], defualt = np.linspace(-0.2, 0.4, 1000)
+    The bin edges for the final kappa histogram. 
+
+
+
+"""
+
 def delegate_weights(weights_list, nweights):
     combs = list(combinations(weights_list, nweights))
     return combs

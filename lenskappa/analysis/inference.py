@@ -9,6 +9,7 @@ import toml
 from functools import reduce 
 from lenskappa.locations import LENSKAPPA_CONFIG_LOCATION
 import json
+import logging
 class InferenceException(Exception):
     pass
 
@@ -51,6 +52,7 @@ class Inference:
     parameters as needed. "Transformation" is a very general term here.
     It could refer to simply loading data from disk, for exampl.e
     """
+    logger = logging.getLogger("Inference")
     base_inference_config = base_inference_config
     def __init__(self, transformations: Dict[str, Transformation], params: dict):
         self.transformations = transformations
@@ -202,7 +204,7 @@ class Inference:
         fails. 
         
         """
-        print(f"MAIN: Running transformation \"{name}\"")
+        self.logger.info(f"Running transformation \"{name}\"")
 
         arguments = {}
         for dep in self.dependency_graph.predecessors(name):

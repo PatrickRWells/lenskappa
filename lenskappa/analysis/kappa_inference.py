@@ -10,6 +10,7 @@ import numba
 import tqdm
 from itertools import combinations
 import pickle
+import logging
 
 
 """
@@ -45,6 +46,7 @@ kappa_bins: list[float], defualt = np.linspace(-0.2, 0.4, 1000)
 
 
 """
+logger = logging.getLogger("kappaInference")
 
 def delegate_weights(weights_list, nweights):
     combs = list(combinations(weights_list, nweights))
@@ -55,7 +57,6 @@ class load_wnc(Transformation):
         path = Path(wnc_path)
         if not path.exists():
             raise FileNotFoundError(f"No file found at {str(path)}")
-        print("reading file")
         return pd.read_csv(path)
     
 class build_wnc_distribution(Transformation):
@@ -71,7 +72,7 @@ class build_wnc_distribution(Transformation):
     
 class load_ms_wnc(Transformation):
     def __call__(self, ms_wnc_path):
-        print(f"Loading and normalize MS weights")
+        logger.info(f"Loading and normalize MS weights")
         path = Path(ms_wnc_path)
         file_paths = [f for f in path.glob("*.csv")]
         data = {}

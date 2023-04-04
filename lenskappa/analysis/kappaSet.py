@@ -6,7 +6,7 @@ from lenskappa.analysis import inference
 from lenskappa.analysis.transformation import Transformation
 from lenskappa.utils import attach_ms_wlm
 import json
-
+import logging
 """
 A kappa set is a series of kappa inferences done on a single system.
 The analysis can be done with several combinations of weights.
@@ -46,7 +46,7 @@ base_weights: list, default = None
 
 
 """
-
+logger = logging.getLogger("KappaSet")
 
 class build_analyses(Transformation):
     def __call__(self, *args, **kwargs):

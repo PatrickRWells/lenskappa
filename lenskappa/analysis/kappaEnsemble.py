@@ -96,7 +96,7 @@ class attach_wlm(Transformation):
     """
     def __call__(self, analyses: list):
         for name, analysis in analyses.items():
-            print(f"Working on lens system {name}")
+            print(f"Checking weak lensing maps for lens {name}")
             analysis.run_to("build_analyses")
 
 class run_analyses(Transformation):

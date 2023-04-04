@@ -11,7 +11,8 @@
         },
         "attach_ms_wlm" : {
             "dependencies": {"load_ms_wnc": "ms_wnc"},
-            "needed-parameters": ["z_s", "wlm_path", "ms_wnc_path"]
+            "needed-parameters": ["z_s", "wlm_path", "ms_wnc_path"],
+            "optional-parameters": ["redshift_plane"]
         },
         "build_wnc_distribution" : {
             "dependencies": {"load_wnc": "wnc"},

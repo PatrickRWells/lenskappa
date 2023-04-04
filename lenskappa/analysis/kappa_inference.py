@@ -95,7 +95,7 @@ class load_ms_wnc(Transformation):
         return output_weights
 
 class attach_ms_wlm(Transformation):
-    def __call__(self, ms_wnc, z_s, wlm_path, ms_wnc_path, threads=1):
+    def __call__(self, ms_wnc, z_s, wlm_path, ms_wnc_path, redshift_plane = None, threads=1):
         all = []
         missing = {}
         for field, weights in ms_wnc.items():
@@ -104,7 +104,7 @@ class attach_ms_wlm(Transformation):
             else:
                 missing.update({field: weights})
         if missing:
-            remaining = attach_wlm(missing, z_s, Path(wlm_path), Path(ms_wnc_path), threads)
+            remaining = attach_wlm(missing, z_s, redshift_plane, Path(wlm_path), Path(ms_wnc_path), threads)
             all = all + [remaining]
         all_weights = pd.concat(all)
         return all_weights

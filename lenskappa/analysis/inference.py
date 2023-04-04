@@ -213,8 +213,8 @@ class Inference:
         optional_params = self.params["transformations"][name].get("optional-parameters", [])
         all_params = needed_params + optional_params
         for param in all_params:
-            pvalue = self.params["parameters"].get(param, False)
-            if pvalue:
+            pvalue = self.params["parameters"].get(param, None)
+            if pvalue is not None: #ugly I know, but "if val" doesn't work for some values
                 arguments.update({param: pvalue})
         transformation_output = self.transformations[name](**arguments)
         self.internal_outputs.update({name: transformation_output})

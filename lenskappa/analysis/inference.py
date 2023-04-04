@@ -148,7 +148,6 @@ class Inference:
         for transformation in self.transformations:
             needed_params = self.params["transformations"][transformation].get("needed-parameters", [])
             self.needed_params = self.needed_params.union(needed_params)
-        
         self.verify_params()
         found_params = set(self.params["parameters"].keys())
 

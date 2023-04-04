@@ -94,6 +94,7 @@ class build_analyses(Transformation):
         with open(template_path, "r") as f:
             base_template = json.load(f)
         analysis_object = inference.build_inference(parameters, base_template , kappa_module)
+        analysis_object.run_to("attach_ms_wlm")
         return analysis_object
 
 

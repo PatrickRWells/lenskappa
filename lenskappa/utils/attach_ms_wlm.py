@@ -81,7 +81,6 @@ def attach_wlm(wnc: dict, redshift: float, wlm_path: Path = None,  wnc_path: Pat
         break
     
     plane_numbers = ms_distances["PlaneNumber"][ms_redshifts.isin(plane_redshift)]
-
     f_ = partial(load_single_field, plane_numbers = plane_numbers, wlm_path = wlm_path)
     with mp.Pool(threads) as p:
         inputs = zip(wnc.values(), wnc_files.values(), wnc.keys())
@@ -122,7 +121,6 @@ def load_field_wlm(field_label, plane_numbers, wlm_path):
     files = [f for f in wlm_path.glob(searchname) if f.suffix in possible_filetypes]
     data = {}
     if not files:
-
         dirs = [path for path in wlm_path.glob("*") if path.is_dir()]
         dirnames = [path.name for path in dirs]
         if all(k in dirnames for k in ["kappa", "gamma"]):
@@ -159,7 +157,8 @@ def check_for_wlm(plane_numbers, field_label, wlm_path):
             print(f"Found multiple directories for plane {pn}!")
             return False
         plane_path = wlm_path / plane_dir[0]
-        files = [file for file in plane_path.glob("*.kappa") if basename in file.stem]
+        kappa_path = plane_path / "kappa"
+        files = [file for file in kappa_path.glob("*.kappa") if basename in file.stem]
         if len(files) != 1:
             print(f"Found wrong number of files for kappa map for field {field_label}")
             return False

@@ -1,0 +1,16 @@
+{
+    "name": "kappa_ensemble",
+    "transformations": {
+        "build_analyses" : {
+            "dependencies": null,
+            "needed-parameters": ["lens_parameters", "kappa_set_parameters", "output_base_path"]
+        },
+        "attach_wlm": {
+            "dependencies": {"build_analyses": "analyses"}
+        },
+        "run_analyses": {
+            "dependencies": {"build_analyses": "analyses", "attach_wlm": false},
+            "is-output": true
+        }
+    }
+}

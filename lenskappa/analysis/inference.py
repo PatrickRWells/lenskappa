@@ -176,6 +176,8 @@ class Inference:
         """
 
         for transformation in self.starts:
+            if self.has_run[transformation]:
+                continue
             self.run_transformation(transformation)
         while True:
             for transformation in self.transformations:

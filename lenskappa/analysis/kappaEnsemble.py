@@ -2,7 +2,7 @@ from pathlib import Path
 from itertools import combinations
 from lenskappa.analysis.transformation import Transformation
 from lenskappa.analysis import kappaSet
-from lenskappa.analysis.inference import build_inference
+from lenskappa.analysis.analysis import build_analysis
 import json
 import toml
 from typing import Union
@@ -86,7 +86,7 @@ class build_analyses(Transformation):
         with open(kappa_set_template, "r") as f:
             kappa_set_template_parameters = json.load(f)
 
-        system_analysis_object = build_inference(system_parameters, kappa_set_template_parameters, kappaSet)
+        system_analysis_object = build_analysis(system_parameters, kappa_set_template_parameters, kappaSet)
         return system_analysis_object
 
 class attach_wlm(Transformation):
@@ -105,5 +105,5 @@ class run_analyses(Transformation):
     def run_analyses(self, analyses: list):
         for name, analysis in analyses.items():
             print(f"Working on analysis for lens system {name}")
-            analysis.run_inference()
+            analysis.run_analysis()
 

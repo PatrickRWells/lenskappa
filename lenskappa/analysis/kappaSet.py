@@ -1,8 +1,8 @@
 from pathlib import Path
 from typing import List
 from itertools import combinations
-from lenskappa.analysis import kappa_inference
-from lenskappa.analysis import inference
+from lenskappa.analysis import kappa_analysis
+from lenskappa.analysis import analysis
 from lenskappa.analysis.transformation import Transformation
 from lenskappa.utils import attach_ms_wlm
 import json
@@ -32,17 +32,17 @@ output_base_path: Path
     same base name discussed above, without file names dependent on the weights
     being used.
 weights: list
-    The list of weights to select from when building inferences.
+    The list of weights to select from when building analysiss.
 nweights: int
-    The number of weights from the weights list to use in each inference. For 
-    each inference, the weights used will be any weights passed into "base-weights",
+    The number of weights from the weights list to use in each analysis. For 
+    each analysis, the weights used will be any weights passed into "base-weights",
     plus nweights from the weights list. 
 z_s: float
     The redshift of this lens. This is required for selecting the redshift plane
     to use for the weak lensing maps.
 
 base_weights: list, default = None
-    The list of weights that will be used for every inference in the set. Optional.
+    The list of weights that will be used for every analysis in the set. Optional.
 
 
 """
@@ -86,7 +86,7 @@ class build_analyses(Transformation):
 
 
         parameters = {
-            "base-inference": "kappa",
+            "base-analysis": "kappa",
             "parameters": {
                 "wnc_path": wnc_path,
                 "ms_wnc_path": ms_weight_paths,
@@ -97,12 +97,12 @@ class build_analyses(Transformation):
                 "redshift_plane": self.plane
             }
         }
-        kappa_module = kappa_inference
+        kappa_module = kappa_analysis
         mod_path = Path(kappa_module.__file__)
         template_path = mod_path.parents[0] / "kappa_template.json"
         with open(template_path, "r") as f:
             base_template = json.load(f)
-        analysis_object = inference.build_inference(parameters, base_template , kappa_module)
+        analysis_object = analysis.build_analysis(parameters, base_template , kappa_module)
         return analysis_object
     
     def get_planes(self, z_s: float):
@@ -112,7 +112,8 @@ class run_analyses(Transformation):
     def __call__(self, *args, **kwargs):
         return self.run_analyses(*args, **kwargs)
     def run_analyses(self, analyses: list):
-        for analysis in analyses:
-            analysis.run_inference()
+        for i, analysis in enumerate(analyses):
+            print(f"Kappa Set: Running analysis {i} of {len(analyses)}")
+            analysis.run_analysis()
 
 

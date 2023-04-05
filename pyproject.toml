@@ -19,7 +19,7 @@ multiprocess = "^0.70.13"
 networkx = "^3.0"
 
 [tool.poetry.scripts]
-lenskappa_inference = "lenskappa.analysis.run_inference:run_inference"
+lenskappa_analysis = "lenskappa.analysis.run_analysis:run_analysis"
 
 [tool.poetry.dev-dependencies]
 

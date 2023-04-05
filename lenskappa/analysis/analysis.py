@@ -10,21 +10,21 @@ from functools import reduce
 from lenskappa.locations import LENSKAPPA_CONFIG_LOCATION
 import json
 import logging
-class InferenceException(Exception):
+class AnalysisException(Exception):
     pass
 
-def build_inference(config, basic_config, module):
+def build_analysis(config, basic_config, module):
     """
-    Build an inference from a configuration file and a module
+    Build an analysis from a configuration file and a module
     
     The "config" parameter should be a dictionary with the
-    necessary parameters for running this inference.
+    necessary parameters for running this analysis.
 
-    The basic_config inference should be a dictionary with
-    the configuration template for this inference.
+    The basic_config analysis should be a dictionary with
+    the configuration template for this analysis.
 
     The "module" should be the module where the transformations
-    for this inference are defined.
+    for this analysis are defined.
 
     """
     transformations = {}
@@ -34,15 +34,15 @@ def build_inference(config, basic_config, module):
             transformations.update({tname: f()})
         except AttributeError:
             name = basic_config["name"]
-            raise AttributeError(f"Unable to find transformation {tname} required by inference {name}")
+            raise AttributeError(f"Unable to find transformation {tname} required by analysis {name}")
     final_cfg = basic_config | config
-    return Inference(transformations, final_cfg)
+    return Analysis(transformations, final_cfg)
 
-with open(LENSKAPPA_CONFIG_LOCATION / "base_inference.json", "r") as f:
-    base_inference_config = json.load(f)
-class Inference:
+with open(LENSKAPPA_CONFIG_LOCATION / "base_analysis.json", "r") as f:
+    base_analysis_config = json.load(f)
+class Analysis:
     """
-    The inference class is a high-level class for transforming
+    The analysis class is a high-level class for transforming
     data. It was originally designed for computing kappa_ext
     using weighted number counts and weak lensing maps from the
     Millennium Simulation.
@@ -52,32 +52,32 @@ class Inference:
     parameters as needed. "Transformation" is a very general term here.
     It could refer to simply loading data from disk, for exampl.e
     """
-    logger = logging.getLogger("Inference")
-    base_inference_config = base_inference_config
+    logger = logging.getLogger("Analysis")
+    base_analysis_config = base_analysis_config
     def __init__(self, transformations: Dict[str, Transformation], params: dict):
         self.transformations = transformations
         self.params = params
         if set(self.params["transformations"].keys()) != set(self.transformations.keys()):
-                raise InferenceException("There should be one transformation in the \"transformation\""\
+                raise AnalysisException("There should be one transformation in the \"transformation\""\
                                          " for each transformation in the \"transformations\" input dictonary"\
                                          " (and vice-versa).")
-        self.verify_inference()
+        self.verify_analysis()
         self.internal_outputs = {}
         self.has_run = {name: False for name in self.transformations}
 
 
 
-    def verify_inference(self):
+    def verify_analysis(self):
         """
         Here, we build a dependency graph and check to make
-        sure the inference is valid. For an inference to be valid, 
+        sure the analysis is valid. For an analysis to be valid, 
         it must have at least one transformation marked as an "output"
         transformation.
         
         """
         self.outputs = [k for k, v in self.params["transformations"].items() if v.get("is-output", False)]
         if not self.outputs:
-            raise InferenceException("Inferences must include at least one output transformation")
+            raise AnalysisException("Analysiss must include at least one output transformation")
         
         self.build_dependency_graph()
         self.check_params()
@@ -85,7 +85,7 @@ class Inference:
 
     def build_dependency_graph(self):
         """
-        Once an inference has been defined, we have to check its validity.
+        Once an analysis has been defined, we have to check its validity.
         Obvious failrue cases include if two transformations depend on the output
         of each other. Or if there is a loop (i.e. three transformations which
         depend on eachother). To check this, we consruct a directed graph of 
@@ -108,13 +108,13 @@ class Inference:
             dependencies = tparams.get("dependencies", None)
             if dependencies is not None:
                 if type(dependencies) != dict:
-                    raise InferenceException("Dependencies should be passed as a dictionary, " \
+                    raise AnalysisException("Dependencies should be passed as a dictionary, " \
                                             "where the key is the name of the dependency " \
                                             "transformation and the value is the name the argument " \
                                             "with its output will be assigned when passed to this "\
                                             "transformation.")
                 if not all([dep in transformations.keys() for dep in dependencies]):
-                    raise InferenceException("Unknown dependencies found! If this transformation needs a "\
+                    raise AnalysisException("Unknown dependencies found! If this transformation needs a "\
                                              "parameter, you should put the parameter name in the needed-parameters "\
                                              "block of the dependency's configuration.")
 
@@ -125,11 +125,11 @@ class Inference:
 
         cycles = list(simple_cycles(self.dependency_graph))
         if cycles:
-            raise InferenceException("Inference contains a dependency cycle!")
+            raise AnalysisException("Analysis contains a dependency cycle!")
         
         isolated_transformation = list(isolates(self.dependency_graph))
         if isolated_transformation:
-            raise InferenceException("Inference contains an isolated step")
+            raise AnalysisException("Analysis contains an isolated step")
         self.predecessors = {}
 
         # Just keep track of everything that needs to run before this transformation
@@ -155,19 +155,19 @@ class Inference:
 
         if (missing := self.needed_params - found_params):
             missing = ",".join(missing)
-            raise InferenceException(f"Inference is missing required parameters {missing}")
+            raise AnalysisException(f"Analysis is missing required parameters {missing}")
     
     def verify_params(self):
         for param in self.needed_params:
-            if param in self.base_inference_config["reserved-keys"]:
-                raise InferenceException(f"Key \"{param}\" is a reserved keyword and cannot be used as"\
+            if param in self.base_analysis_config["reserved-keys"]:
+                raise AnalysisException(f"Key \"{param}\" is a reserved keyword and cannot be used as"\
                                           " a parameter in an analysis definition.")
 
 
 
-    def run_inference(self):
+    def run_analysis(self):
         """
-        Runs the inference. Starts by running transformations that have
+        Runs the analysis. Starts by running transformations that have
         no dependencies. Ensures that all nodes are visited exactly once.
 
         We've already verified that this is a valid dependency graph, i.e. that
@@ -243,7 +243,7 @@ class Inference:
         
         #If this transformation is the only output transformation, throw an error
         if transformation_name in self.outputs and len(self.outputs) == 0:
-            raise InferenceException(f"Running to transformation {transformation_name} would require running"\
+            raise AnalysisException(f"Running to transformation {transformation_name} would require running"\
                                     "the full analysis! Use \"run_analysis\" instead.")
         
         #Otherwise, we determine which transformations we need to run first,
@@ -266,7 +266,7 @@ class Inference:
 
     def reset(self):
         """
-        Completely reset an inference, as though nothing has run. Does
+        Completely reset an analysis, as though nothing has run. Does
         not discard the dependency graph and related products.
         This cannot be undone, so use carefully.
 

@@ -1,5 +1,5 @@
 from lenskappa.analysis.transformation import Transformation
-from lenskappa.utils.attach_ms_wlm import attach_wlm
+from lenskappa.utils.attach_ms_wlm import attach_wlm, get_redshift_plane
 import pandas as pd
 from pathlib import Path
 import re
@@ -11,8 +11,12 @@ import tqdm
 from itertools import combinations
 import pickle
 import logging
-
-
+from dask.distributed import get_client, secede, rejoin
+from dask import array
+import time
+import psutil
+import os
+import random
 """
 This analysis represents a single kappa inference,
 using a particular set of weights.
@@ -51,6 +55,12 @@ logger = logging.getLogger("kappaInference")
 def delegate_weights(weights_list, nweights):
     combs = list(combinations(weights_list, nweights))
     return combs
+
+def setup(config):
+    redshift_plane = get_redshift_plane(config["parameters"]["z_s"])
+    return {"redshift_plane": redshift_plane}
+
+
 
 class load_wnc(Transformation):
     def __call__(self, wnc_path: str):
@@ -136,12 +146,23 @@ class compute_pdfs(Transformation):
         weight_pdf = wnc_distribution[0]
         kappas = ms_weights_wwlm["kappa"].to_numpy()
         idxs = [np.array(idx) for idx in np.ndindex(weight_pdf.shape)]
-        f_ = partial(compute_single_pdf, ms_partitions = ms_weight_partitions, kappas = kappas, kappa_bins = kappa_bins)
-        with mp.Pool(threads) as p:
-            chunksize = len(idxs) // 100
-            results = list(tqdm.tqdm(p.imap(f_, idxs, chunksize=chunksize), total=len(idxs)))
-            
-        results = np.array([r*weight_pdf[tuple(idxs[i])] for i, r in enumerate(results)])
+        #f_ = partial(compute_single_pdf, ms_partitions = ms_weight_partitions, kappas = kappas, kappa_bins = kappa_bins)
+        client = get_client()
+        nworkers = len(client.scheduler_info()["workers"])
+        nper = len(idxs) // nworkers
+        random.shuffle(idxs)
+        results = []
+        for i in range(nworkers):
+            if i == (nworkers - 1):
+                idx_range = idxs[nper*i: -1]
+            else:
+                idx_range = idxs[nper*i: nper*(i+1)]
+            f_ = partial(compute_pdf_range, idx_list = idx_range, weight_pdf = weight_pdf, ms_partitions = ms_weight_partitions, kappas = kappas, kappa_bins = kappa_bins)
+            results.append(client.submit(f_))
+        
+        secede()
+        results = np.array(client.gather(results))
+        rejoin()
         pdf = np.sum(results, axis=0)
         if output_path is not None:
             output = {"bins": kappa_bins, "pdf": pdf}
@@ -149,7 +170,14 @@ class compute_pdfs(Transformation):
                 pickle.dump(output, f)
 
         return kappa_bins, pdf
-    
+
+
+def compute_pdf_range(idx_list, weight_pdf, ms_partitions, kappas, kappa_bins):
+    results = np.array([compute_single_pdf(idx, ms_partitions, kappas, kappa_bins) for idx in idx_list])
+    results = np.array([result*weight_pdf[tuple(idx_list[i])] for i, result in enumerate(results)])
+    results = np.sum(results, axis=0)
+    return results
+
 @numba.njit
 def compute_single_pdf(idx, ms_partitions, kappas, kappa_bins):
         mask = np.ones(len(ms_partitions), dtype=np.bool8)

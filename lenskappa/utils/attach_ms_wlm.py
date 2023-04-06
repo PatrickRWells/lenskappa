@@ -18,6 +18,7 @@ from functools import partial
 import re
 import collections
 import logging
+from dask.distributed import get_client, secede, rejoin
 
 logger = logging.getLogger("attach_wlm")
 
@@ -71,9 +72,13 @@ def attach_wlm(wnc: dict, redshift: float, redshift_plane: list = None, wlm_path
         plane_numbers = redshift_plane
     plane_numbers.sort()
     f_ = partial(load_single_field, plane_numbers = plane_numbers, wlm_path = wlm_path)
-    with mp.Pool(threads) as p:
-        inputs = zip(wnc.values(), wnc_files.values(), wnc.keys())
-        wnc_dfs = p.map(f_, inputs)
+    client = get_client()
+    inputs = list(zip(wnc.values(), wnc_files.values(), wnc.keys()))
+    
+    map = client.map(f_, inputs)
+    secede()
+    wnc_dfs = client.gather(map)
+    rejoin()
     if any([df is not None for df in wnc_dfs]):
         return pd.concat([df for df in wnc_dfs if df is not None])
     return pd.DataFrame()

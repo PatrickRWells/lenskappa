@@ -10,6 +10,8 @@ from functools import reduce
 from lenskappa.locations import LENSKAPPA_CONFIG_LOCATION
 import json
 import logging
+import dask
+from dask.distributed import Client
 class AnalysisException(Exception):
     pass
 
@@ -36,6 +38,11 @@ def build_analysis(config, basic_config, module):
             name = basic_config["name"]
             raise AttributeError(f"Unable to find transformation {tname} required by analysis {name}")
     final_cfg = basic_config | config
+    
+    if (setup := getattr(module, "setup", False)):
+        extra_parameters = setup(final_cfg)
+        final_cfg["parameters"].update(extra_parameters)
+
     return Analysis(transformations, final_cfg)
 
 with open(LENSKAPPA_CONFIG_LOCATION / "base_analysis.json", "r") as f:
@@ -55,6 +62,7 @@ class Analysis:
     logger = logging.getLogger("Analysis")
     base_analysis_config = base_analysis_config
     def __init__(self, transformations: Dict[str, Transformation], params: dict):
+        self.client = Client()
         self.transformations = transformations
         self.params = params
         if set(self.params["transformations"].keys()) != set(self.transformations.keys()):
@@ -62,6 +70,7 @@ class Analysis:
                                          " for each transformation in the \"transformations\" input dictonary"\
                                          " (and vice-versa).")
         self.verify_analysis()
+        self.build_dask_graph()
         self.internal_outputs = {}
         self.has_run = {name: False for name in self.transformations}
 
@@ -157,6 +166,31 @@ class Analysis:
             missing = ",".join(missing)
             raise AnalysisException(f"Analysis is missing required parameters {missing}")
     
+    def build_dask_graph(self, *args, **kwargs):
+        self.delayed = {}
+        self.scheduled = {n: False for n in self.transformations}
+        for transformation in self.starts:
+            arguments = self.get_transformation_parameters(transformation)
+            delayed_fn = dask.delayed(self.transformations[transformation])(**arguments)
+            self.delayed.update({transformation: delayed_fn})
+            self.scheduled[transformation] = True
+
+        while True:
+            for transformation in self.transformations:
+                if transformation in self.delayed.keys():
+                    continue
+                dependencies = self.predecessors[transformation]
+                if all([self.scheduled[k] for k in dependencies]):
+                    self.schedule_transformation(transformation)
+            if all(self.scheduled.values()):
+                break
+
+    def schedule_transformation(self, transformation): 
+        inputs = self.get_transformation_parameters(transformation, scheduled = True)
+        delayed_fn = dask.delayed(self.transformations[transformation])(**inputs)
+        self.delayed.update({transformation: delayed_fn})
+        self.scheduled[transformation] = True
+
     def verify_params(self):
         for param in self.needed_params:
             if param in self.base_analysis_config["reserved-keys"]:
@@ -176,6 +210,11 @@ class Analysis:
         to see if its dependencies HAVE been run, and run it if so. Once everything
         has been run once, we break.
         """
+        outputs = {}
+        for output in self.outputs:
+            outputs.update({output: self.delayed[output].compute()})
+        return outputs
+
 
         for transformation in self.starts:
             if self.has_run[transformation]:
@@ -192,6 +231,31 @@ class Analysis:
                 break
         return self.cleanup()
 
+    def get_transformation_parameters(self, name, scheduled = False):
+        """
+        Retrieve any parameters that are required by the transformation with this name
+        and return them as a dictionary. 
+        
+        """
+
+        arguments = {}
+        for dep in self.dependency_graph.predecessors(name):
+            alias = self.params["transformations"][name]["dependencies"][dep]
+            if not alias:
+                continue
+            if scheduled:
+                output = self.delayed[dep]
+            else:
+                output = self.internal_outputs[dep]
+            arguments.update({alias: output})
+        needed_params = self.params["transformations"][name].get("needed-parameters", [])
+        optional_params = self.params["transformations"][name].get("optional-parameters", [])
+        all_params = needed_params + optional_params
+        for param in all_params:
+            pvalue = self.params["parameters"].get(param, None)
+            if pvalue is not None: #ugly I know, but "if val" doesn't work for some values
+                arguments.update({param: pvalue})
+        return arguments
 
     def run_transformation(self, name):
         """
@@ -204,22 +268,8 @@ class Analysis:
         fails. 
         
         """
+        arguments = self.get_transformation_parameters(name)
         self.logger.info(f"Running transformation \"{name}\"")
-
-        arguments = {}
-        for dep in self.dependency_graph.predecessors(name):
-            alias = self.params["transformations"][name]["dependencies"][dep]
-            if not alias:
-                continue
-            output = self.internal_outputs[dep]
-            arguments.update({alias: output})
-        needed_params = self.params["transformations"][name].get("needed-parameters", [])
-        optional_params = self.params["transformations"][name].get("optional-parameters", [])
-        all_params = needed_params + optional_params
-        for param in all_params:
-            pvalue = self.params["parameters"].get(param, None)
-            if pvalue is not None: #ugly I know, but "if val" doesn't work for some values
-                arguments.update({param: pvalue})
         transformation_output = self.transformations[name](**arguments)
         self.internal_outputs.update({name: transformation_output})
         self.has_run[name] = True

@@ -56,7 +56,7 @@ class build_analyses(Transformation):
         wnc_base_path: Path, ms_wnc_base_path: Path,
         wlm_base_path: Path, output_base_path: Path,
         wnc_base_names: List[str], weights: List[str], 
-        nweights: int, z_s: float, base_weights: List[str] = None):
+        nweights: int, z_s: float, base_weights: List[str] = None, **kwargs):
 
         wnc_paths = [Path(wnc_base_path) / f"{bn}.csv" for bn in wnc_base_names]
         ms_weight_paths = [Path(ms_wnc_base_path) / f"{bn}" for bn in wnc_base_names]
@@ -76,11 +76,11 @@ class build_analyses(Transformation):
         self.plane = self.get_planes(z_s)
         for param_combo in weight_parameter_combinations:
             for combo in weight_combinations:
-                analyses.append(self.build_single_analysis(*param_combo, wlm_base_path, combo, z_s))
+                analyses.append(self.build_single_analysis(*param_combo, wlm_base_path, combo, z_s, **kwargs))
 
         return analyses
 
-    def build_single_analysis(self, wnc_path, ms_weight_paths, output_path, wlm_base_path, weight_combination, z_s):
+    def build_single_analysis(self, wnc_path, ms_weight_paths, output_path, wlm_base_path, weight_combination, z_s, **kwargs):
         fname = "_".join(weight_combination) + ".k"
         new_output_path = Path(output_path) / fname
 
@@ -102,18 +102,11 @@ class build_analyses(Transformation):
         template_path = mod_path.parents[0] / "kappa_template.json"
         with open(template_path, "r") as f:
             base_template = json.load(f)
-        analysis_object = analysis.build_analysis(parameters, base_template , kappa_module)
+
+        analysis_object = analysis.build_analysis(parameters, base_template , kappa_module, **kwargs)
         return analysis_object
     
     def get_planes(self, z_s: float):
         return attach_ms_wlm.get_redshift_plane(z_s)
-
-class run_analyses(Transformation):
-    def __call__(self, *args, **kwargs):
-        return self.run_analyses(*args, **kwargs)
-    def run_analyses(self, analyses: list):
-        for i, analysis in enumerate(analyses):
-            print(f"Kappa Set: Running analysis {i} of {len(analyses)}")
-            analysis.run_analysis()
 
 

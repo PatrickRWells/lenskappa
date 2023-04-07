@@ -200,8 +200,7 @@ def load_field_wlm(field_label, plane_numbers, wlm_path):
                 data.update({pn: load_field_wlm(field_label, [pn], plane_dir[0])})
             return data
         else:
-            print(plane_numbers)
-            pns = ",".join([pn for pn in plane_numbers])
+            pns = ",".join([str(pn) for pn in plane_numbers])
             print(f"No .kappa and .gamma files found for field {field_label} in plane(s) {pns}")
             return
 

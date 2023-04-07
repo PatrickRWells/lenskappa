@@ -3,16 +3,14 @@
     "transformations": {
         "build_analyses" : {
             "dependencies": null,
+            "analysis-builder": true,
             "needed-parameters": [
                 "wnc_base_path", "ms_wnc_base_path",
                 "wlm_base_path", "output_base_path",
                 "wnc_base_names", "weights", "nweights",
                 "z_s"
             ],
-            "optional-parameters": ["base_weights"]
-        },
-        "run_analyses": {
-            "dependencies": {"build_analyses": "analyses"},
+            "optional-parameters": ["base_weights"],
             "is-output": true
         }
     }

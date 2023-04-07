@@ -11,11 +11,12 @@ from lenskappa.locations import LENSKAPPA_CONFIG_LOCATION
 import json
 import logging
 import dask
-from dask.distributed import Client
+import uuid
+from dask.distributed import Client, get_client
 class AnalysisException(Exception):
     pass
 
-def build_analysis(config, basic_config, module):
+def build_analysis(config, basic_config, module, **kwargs):
     """
     Build an analysis from a configuration file and a module
     
@@ -43,7 +44,7 @@ def build_analysis(config, basic_config, module):
         extra_parameters = setup(final_cfg)
         final_cfg["parameters"].update(extra_parameters)
 
-    return Analysis(transformations, final_cfg)
+    return Analysis(transformations, final_cfg, **kwargs)
 
 with open(LENSKAPPA_CONFIG_LOCATION / "base_analysis.json", "r") as f:
     base_analysis_config = json.load(f)
@@ -57,24 +58,34 @@ class Analysis:
     The goal is to load a series of transformations, each of which
     takes in the output of other transformations and additional
     parameters as needed. "Transformation" is a very general term here.
-    It could refer to simply loading data from disk, for exampl.e
+    It could refer to simply loading data from disk, for example.
     """
     logger = logging.getLogger("Analysis")
     base_analysis_config = base_analysis_config
-    def __init__(self, transformations: Dict[str, Transformation], params: dict):
-        self.client = Client()
+    def __init__(self, transformations: Dict[str, Transformation], params: dict, **kwargs):
         self.transformations = transformations
         self.params = params
+        self.get_clients(**kwargs)
+
+        self.tags = self.params.get("tags", [])
+        self.name = self.params["name"]
         if set(self.params["transformations"].keys()) != set(self.transformations.keys()):
                 raise AnalysisException("There should be one transformation in the \"transformation\""\
                                          " for each transformation in the \"transformations\" input dictonary"\
                                          " (and vice-versa).")
+
         self.verify_analysis()
+
         self.build_dask_graph()
+
         self.internal_outputs = {}
         self.has_run = {name: False for name in self.transformations}
 
-
+    def get_clients(self, sub_analysis = False, logger = None):
+        if sub_analysis:
+            self.client = get_client()
+        else:
+            self.client = Client()
 
     def verify_analysis(self):
         """
@@ -85,8 +96,8 @@ class Analysis:
         
         """
         self.outputs = [k for k, v in self.params["transformations"].items() if v.get("is-output", False)]
-        if not self.outputs:
-            raise AnalysisException("Analysiss must include at least one output transformation")
+        if not (self.outputs or "analysis-builder" in self.tags) :
+            raise AnalysisException("Analysis must include at least one output transformation")
         
         self.build_dependency_graph()
         self.check_params()
@@ -134,11 +145,8 @@ class Analysis:
 
         cycles = list(simple_cycles(self.dependency_graph))
         if cycles:
-            raise AnalysisException("Analysis contains a dependency cycle!")
+            raise AnalysisException(f"Analysis {self.name} contains a dependency cycle!")
         
-        isolated_transformation = list(isolates(self.dependency_graph))
-        if isolated_transformation:
-            raise AnalysisException("Analysis contains an isolated step")
         self.predecessors = {}
 
         # Just keep track of everything that needs to run before this transformation
@@ -169,27 +177,59 @@ class Analysis:
     def build_dask_graph(self, *args, **kwargs):
         self.delayed = {}
         self.scheduled = {n: False for n in self.transformations}
-        for transformation in self.starts:
-            arguments = self.get_transformation_parameters(transformation)
-            delayed_fn = dask.delayed(self.transformations[transformation])(**arguments)
-            self.delayed.update({transformation: delayed_fn})
-            self.scheduled[transformation] = True
-
         while True:
             for transformation in self.transformations:
-                if transformation in self.delayed.keys():
+                if self.scheduled[transformation]:
                     continue
                 dependencies = self.predecessors[transformation]
-                if all([self.scheduled[k] for k in dependencies]):
+                if not dependencies or all([self.scheduled[k] for k in dependencies]):
                     self.schedule_transformation(transformation)
             if all(self.scheduled.values()):
                 break
 
-    def schedule_transformation(self, transformation): 
-        inputs = self.get_transformation_parameters(transformation, scheduled = True)
-        delayed_fn = dask.delayed(self.transformations[transformation])(**inputs)
-        self.delayed.update({transformation: delayed_fn})
+    def schedule_transformation(self, transformation):
+        if self.params["transformations"][transformation].get("analysis-builder", False):
+            self.handle_analysis_builder(transformation)
+        else:
+            inputs = self.get_transformation_parameters(transformation, scheduled = True)
+            delayed_fn = dask.delayed(self.transformations[transformation])(**inputs)
+            self.delayed.update({transformation: delayed_fn})
+            self.scheduled[transformation] = True
+    
+    def handle_analysis_builder(self, transformation):
+        """
+        When one of the transformations in an analysis creates new analyses,
+        we have to be careful when adding them to dask. Ideally, we'd be able
+        to fully expand the graph before running anything. But if this analysis
+        builder depends on results of pervious transformations, there's no way
+        to avoid running this in bits and pieces.  
+        
+        So we run any transformation leading up to this builder, then take the 
+        delatedy outputs from the analyses that have been built and glue it onto 
+        the execution graph we've already built. 
+        """
+        
+        predecessors = self.predecessors[transformation]
+        for predecessor in predecessors:
+            self.run_to(predecessor)
+        
+        analyses = self.run_single(transformation, sub_analysis = True)
+        self_is_output = self.params["transformations"][transformation].get("is-output", False)
+        for a in analyses:
+            outputs = [a.delayed[output] for output in a.outputs]
+            if self_is_output:
+                a_uuid = str(uuid.uuid1())
+                output_names = ["-".join([output, a_uuid]) for output in a.outputs]
+                output_dict = dict(list(zip(output_names, outputs)))
+                self.delayed.update(output_dict)
+                self.outputs.extend(output_names)
+            else:
+                self.delayed.update({transformation: outputs})
+                
+        self.outputs.remove(transformation)
         self.scheduled[transformation] = True
+
+    
 
     def verify_params(self):
         for param in self.needed_params:
@@ -216,20 +256,6 @@ class Analysis:
         return outputs
 
 
-        for transformation in self.starts:
-            if self.has_run[transformation]:
-                continue
-            self.run_transformation(transformation)
-        while True:
-            for transformation in self.transformations:
-                if self.has_run[transformation]:
-                    continue
-                dependencies = self.predecessors[transformation]
-                if all([self.has_run[k] for k in dependencies]):
-                    self.run_transformation(transformation)
-            if all(self.has_run.values()):
-                break
-        return self.cleanup()
 
     def get_transformation_parameters(self, name, scheduled = False):
         """
@@ -257,7 +283,7 @@ class Analysis:
                 arguments.update({param: pvalue})
         return arguments
 
-    def run_transformation(self, name):
+    def run_single(self, name, **kwargs):
         """
         Runs a single transformation by name. Before we get here,
         we have always checked to make sure all the necessary parameters are
@@ -268,13 +294,12 @@ class Analysis:
         fails. 
         
         """
-        arguments = self.get_transformation_parameters(name)
         self.logger.info(f"Running transformation \"{name}\"")
-        transformation_output = self.transformations[name](**arguments)
-        self.internal_outputs.update({name: transformation_output})
-        self.has_run[name] = True
+        transformation_parameters = self.get_transformation_parameters(name, )
+        transformation_output = self.transformations[name](**transformation_parameters, **kwargs)
+        return transformation_output
 
-    def run_to(self, transformation_name: str):
+    def run_to(self, transformation_name: str, **kwargs):
         """
         Run this analysis up to and including a particular transformation. This will
         determine the shortest path that includes all prerequisite transformations.
@@ -287,32 +312,12 @@ class Analysis:
             raise KeyError(f"Transformation {transformation_name} not found in this analysis!")
 
         #If this transformation has no prereqs, just run it
-        if transformation_name in self.starts:
-            self.run_transformation(transformation_name)
-            return self.internal_outputs[transformation_name]
         
         #If this transformation is the only output transformation, throw an error
-        if transformation_name in self.outputs and len(self.outputs) == 0:
-            raise AnalysisException(f"Running to transformation {transformation_name} would require running"\
-                                    "the full analysis! Use \"run_analysis\" instead.")
         
+        self.run_transformation(transformation_name, **kwargs)
         #Otherwise, we determine which transformations we need to run first,
         #and run those
-        necessary_paths = []
-        for start in self.starts:
-            necessary_paths.extend(list(all_simple_paths(self.dependency_graph, start, transformation_name)))
-        #Get the nodes in these paths that are actually unique
-        unique_transformations = reduce(lambda l, r: set(l).union(r), necessary_paths )
-        while True:
-            for transformation in unique_transformations:
-                if self.has_run[transformation]:
-                    continue
-                dependencies = self.predecessors[transformation]
-                if all([self.has_run[k] for k in dependencies]):
-                    self.run_transformation(transformation)
-            if self.has_run[transformation_name]:
-                break
-        return self.internal_outputs[transformation_name]
 
     def reset(self):
         """

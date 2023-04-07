@@ -57,8 +57,11 @@ def delegate_weights(weights_list, nweights):
     return combs
 
 def setup(config):
-    redshift_plane = get_redshift_plane(config["parameters"]["z_s"])
-    return {"redshift_plane": redshift_plane}
+    ret = {}
+    if "redshift_plane" not in config["parameters"]:
+        redshift_plane = get_redshift_plane(config["parameters"]["z_s"])
+        ret.update({"redshift_plane": redshift_plane})
+    return ret
 
 
 
@@ -139,7 +142,7 @@ class partition_ms_weights(Transformation):
 
 
 class compute_pdfs(Transformation):
-    def __call__(self, ms_weights_wwlm, ms_weight_partitions, wnc_distribution, kappa_bins = None, output_path = None, threads=1):
+    def __call__(self, ms_weights_wwlm, ms_weight_partitions, wnc_distribution, kappa_bins = None, output_path = None, name=None):
         if kappa_bins is None:
             kappa_bins = np.linspace(-0.2, 0.4, 1000)
         pdf = np.zeros_like(kappa_bins[:-1])
@@ -159,7 +162,6 @@ class compute_pdfs(Transformation):
                 idx_range = idxs[nper*i: nper*(i+1)]
             f_ = partial(compute_pdf_range, idx_list = idx_range, weight_pdf = weight_pdf, ms_partitions = ms_weight_partitions, kappas = kappas, kappa_bins = kappa_bins)
             results.append(client.submit(f_))
-        
         secede()
         results = np.array(client.gather(results))
         rejoin()

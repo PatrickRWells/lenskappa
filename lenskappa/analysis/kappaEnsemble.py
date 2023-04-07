@@ -53,7 +53,7 @@ class build_analyses(Transformation):
         return self.build_analyses(*args, **kwargs)
     def build_analyses(self,
         lens_parameters: dict, kappa_set_parameters: Union[dict, Path],
-        output_base_path: Path):
+        output_base_path: Path, **kwargs):
         if type(kappa_set_parameters) == dict:
             self.common_parameters = kappa_set_parameters
         else:
@@ -67,12 +67,12 @@ class build_analyses(Transformation):
         if "parameters" not in self.common_parameters.keys():
             self.common_parameters = {"base-inferece": "kappa_set", "parameters": self.common_parameters}
         self.base_output = Path(output_base_path)
-        analyses = {}
+        analyses = []
         for lens, pars in lens_parameters.items():
-            analyses.update({lens: self.build_single_analysis(lens, pars)})
+            analyses.append(self.build_single_analysis(lens, pars, **kwargs))
         return analyses
 
-    def build_single_analysis(self, lens_name, lens_paramters):
+    def build_single_analysis(self, lens_name, lens_paramters, **kwargs):
         """
         Here, we just have to combine the parameters. The kappa set analysis
         will check everything to make sure its valid. Anything that is wrong with 
@@ -86,7 +86,7 @@ class build_analyses(Transformation):
         with open(kappa_set_template, "r") as f:
             kappa_set_template_parameters = json.load(f)
 
-        system_analysis_object = build_analysis(system_parameters, kappa_set_template_parameters, kappaSet)
+        system_analysis_object = build_analysis(system_parameters, kappa_set_template_parameters, kappaSet, **kwargs)
         return system_analysis_object
 
 class attach_wlm(Transformation):

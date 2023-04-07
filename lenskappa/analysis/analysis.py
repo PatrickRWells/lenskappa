@@ -13,6 +13,8 @@ import logging
 import dask
 import uuid
 from dask.distributed import Client, get_client
+from loguru import logger
+import sys
 class AnalysisException(Exception):
     pass
 
@@ -60,15 +62,15 @@ class Analysis:
     parameters as needed. "Transformation" is a very general term here.
     It could refer to simply loading data from disk, for example.
     """
-    logger = logging.getLogger("Analysis")
     base_analysis_config = base_analysis_config
     def __init__(self, transformations: Dict[str, Transformation], params: dict, **kwargs):
         self.transformations = transformations
         self.params = params
-        self.get_clients(**kwargs)
-
         self.tags = self.params.get("tags", [])
         self.name = self.params["name"]
+
+        self.get_clients(**kwargs)
+
         if set(self.params["transformations"].keys()) != set(self.transformations.keys()):
                 raise AnalysisException("There should be one transformation in the \"transformation\""\
                                          " for each transformation in the \"transformations\" input dictonary"\
@@ -81,12 +83,17 @@ class Analysis:
         self.internal_outputs = {}
         self.has_run = {name: False for name in self.transformations}
 
-    def get_clients(self, sub_analysis = False, logger = None):
+    def get_clients(self, sub_analysis = False, logger_ = None):
         if sub_analysis:
             self.client = get_client()
         else:
             self.client = Client()
-
+        self.logger = logger_
+        if self.logger is None:
+            self.logger = logger
+            self.logger.remove()
+            self.logger.add(sys.stderr, level="INFO")
+            
     def verify_analysis(self):
         """
         Here, we build a dependency graph and check to make
@@ -281,6 +288,7 @@ class Analysis:
             pvalue = self.params["parameters"].get(param, None)
             if pvalue is not None: #ugly I know, but "if val" doesn't work for some values
                 arguments.update({param: pvalue})
+        arguments.update({"logger_": self.logger})
         return arguments
 
     def run_single(self, name, **kwargs):
@@ -294,7 +302,7 @@ class Analysis:
         fails. 
         
         """
-        self.logger.info(f"Running transformation \"{name}\"")
+        self.logger.debug(f"Running transformation \"{name}\"")
         transformation_parameters = self.get_transformation_parameters(name, )
         transformation_output = self.transformations[name](**transformation_parameters, **kwargs)
         return transformation_output

@@ -3,8 +3,10 @@ import toml
 from lenskappa.analysis import analysis, kappa_analysis, kappaSet, kappaEnsemble
 from pathlib import Path
 import sys
+import logging
 
 def run_analysis():
+
     config_path = Path(sys.argv[1])
     if config_path.suffix == ".toml":
         loader = toml.load

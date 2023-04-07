@@ -7,7 +7,8 @@ import json
 import toml
 from typing import Union
 from copy import deepcopy
-
+import logging
+from loguru import logger
 """
 A kappa ensemble is a kappa set that is being applied to
 several different systems. When running a kappa anlysis, we
@@ -49,11 +50,12 @@ class build_analyses(Transformation):
     Builds the analyses
     
     """
-    def __call__(self, *args, **kwargs):
-        return self.build_analyses(*args, **kwargs)
+    def __call__(self, logger_, *args, **kwargs):
+
+        return self.build_analyses(logger_=logger_, *args, **kwargs)
     def build_analyses(self,
         lens_parameters: dict, kappa_set_parameters: Union[dict, Path],
-        output_base_path: Path, **kwargs):
+        output_base_path: Path, logger_ = logging.Logger, **kwargs):
         if type(kappa_set_parameters) == dict:
             self.common_parameters = kappa_set_parameters
         else:
@@ -69,10 +71,12 @@ class build_analyses(Transformation):
         self.base_output = Path(output_base_path)
         analyses = []
         for lens, pars in lens_parameters.items():
-            analyses.append(self.build_single_analysis(lens, pars, **kwargs))
+            print(logger_)
+            logger_.info(f"Building analysis for lens {lens}")
+            analyses.append(self.build_single_analysis(lens, pars, logger, **kwargs))
         return analyses
 
-    def build_single_analysis(self, lens_name, lens_paramters, **kwargs):
+    def build_single_analysis(self, lens_name: str, lens_paramters: dict, logger: logging.Logger, **kwargs):
         """
         Here, we just have to combine the parameters. The kappa set analysis
         will check everything to make sure its valid. Anything that is wrong with 
@@ -85,7 +89,7 @@ class build_analyses(Transformation):
         kappa_set_template = Path(kappaSet.__file__).parents[0] / "kappa_set_template.json"
         with open(kappa_set_template, "r") as f:
             kappa_set_template_parameters = json.load(f)
-
+        system_parameters["name"] = lens_name
         system_analysis_object = build_analysis(system_parameters, kappa_set_template_parameters, kappaSet, **kwargs)
         return system_analysis_object
 

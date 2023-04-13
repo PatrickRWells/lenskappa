@@ -17,9 +17,10 @@ scipy = "^1.8.0"
 heinlein = "^0.4.0"
 multiprocess = "^0.70.13"
 networkx = "^3.0"
+dask = {extras = ["distributed"], version = "^2023.3.2"}
 
 [tool.poetry.scripts]
-lenskappa_inference = "lenskappa.analysis.run_inference:run_inference"
+lenskappa_analysis = "lenskappa.analysis.run_analysis:run_analysis"
 
 [tool.poetry.dev-dependencies]
 

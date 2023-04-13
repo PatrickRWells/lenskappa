@@ -17,12 +17,24 @@ import multiprocessing as mp
 from functools import partial
 import re
 import collections
+import logging
+from dask.distributed import get_client, secede, rejoin
 
-def attach_wlm(wnc: dict, redshift: float, wlm_path: Path = None,  wnc_path: Path = None, inplace=True, threads = 1,*args, **kwargs):
+logger = logging.getLogger("attach_wlm")
+
+
+def attach_wlm(wnc: dict, redshift: float, redshift_plane: list = None, wlm_path: Path = None,  wnc_path: Path = None, inplace=True, threads = 1,*args, **kwargs):
     """
-    Arguments:
+    Attaches weak lensing observables to a set of weighted number counts found
+    in the millennium simulation. The kappa and gamma values are stored
+    in a subfolder of the folder with the original values, making it easy 
+    to re-attach them later.
+
+
+    Parameters:
+    -----------
     
-    wnc_path: Path to the weighted number counts files. No particular filename is necessar, we just 
+    wnc_path: Path to the weighted number counts files. No particular filename is necessary, we just 
     expect somewhere in the name to find the tuple that tells us which field it is from
     
     redshift: Redshift cutoff used when computing weighted number counts
@@ -52,6 +64,33 @@ def attach_wlm(wnc: dict, redshift: float, wlm_path: Path = None,  wnc_path: Pat
         
 
 
+    if redshift_plane is None:
+        plane_numbers = get_redshift_plane(redshift)
+    elif type(redshift_plane) != list:
+        plane_numbers = [redshift_plane]
+    else:
+        plane_numbers = redshift_plane
+    plane_numbers.sort()
+    f_ = partial(load_single_field, plane_numbers = plane_numbers, wlm_path = wlm_path)
+    client = get_client()
+    inputs = list(zip(wnc.values(), wnc_files.values(), wnc.keys()))
+    
+    map = client.map(f_, inputs)
+    secede()
+    wnc_dfs = client.gather(map)
+    rejoin()
+    if any([df is not None for df in wnc_dfs]):
+        return pd.concat([df for df in wnc_dfs if df is not None])
+    return pd.DataFrame()
+
+def get_redshift_plane(redshift):
+    """
+    Figures out the best redshift plane to use given a particular redshift.
+    This is only necesesary if the redshift plane is not passed into the 
+    original attach_wlm function.
+    """
+
+
     main_path = Path(lenskappa.__file__).parents[0]
     ms_distances_path = main_path / "datasets" / "surveys" / "ms" / "Millennium_distances.txt"
     ms_distances = pd.read_csv(ms_distances_path, delim_whitespace=True)
@@ -79,22 +118,33 @@ def attach_wlm(wnc: dict, redshift: float, wlm_path: Path = None,  wnc_path: Pat
         elif choice == "G":
             plane_redshift = [closest_above, closest_below]
         break
-    
     plane_numbers = ms_distances["PlaneNumber"][ms_redshifts.isin(plane_redshift)]
+    return [pn for pn in plane_numbers]
 
-    f_ = partial(load_single_field, plane_numbers = plane_numbers, wlm_path = wlm_path)
-    with mp.Pool(threads) as p:
-        inputs = zip(wnc.values(), wnc_files.values(), wnc.keys())
-        wnc_dfs = p.map(f_, inputs)
-    if any([df is not None for df in wnc_dfs]):
-        return pd.concat([df for df in wnc_dfs if df is not None])
-    return pd.DataFrame()
+
 
 def load_single_field(input_tuple, plane_numbers, wlm_path):
+        """"
+        The millennium simulation is split 64 4x4 deg^2 fields. It's assumed that the
+        weighted number counts are similarly split up. This function loads a single 
+        one of these fields for a given redshift plane (or planes, if using an average)
+        
+        """
         wnc = input_tuple[0]
         wnc_file = input_tuple[1]
         field = input_tuple[2]
-        print(f"Working on field {field}")
+        output_folder = wnc_file.parents[0] / "+".join([str(p) for p in plane_numbers])
+
+        if check_for_wlm(wnc_file, plane_numbers):
+            field_file = output_folder / wnc_file.name
+            wlm_data = pd.read_csv(field_file)
+            if len(wlm_data) == len(wnc):
+                return pd.merge(wnc, wlm_data, on = ["ra", "dec"])
+
+
+
+        output = wnc[["ra", "dec"]].copy()
+        logger.info(f"Working on field {field}")
         wl_data = load_field_wlm(field, plane_numbers, wlm_path)
         if wl_data is None:
             return
@@ -111,18 +161,27 @@ def load_single_field(input_tuple, plane_numbers, wlm_path):
         kappas = kappa_total[index_arrays[0], index_arrays[1]]
         gammas = gamma_total[index_arrays[0], index_arrays[1]]
 
+        output["kappa"] = kappas
+        output["gamma"] = gammas
+        output_folder.mkdir(exist_ok = True)
+        output_file = output_folder / wnc_file.name
+        output.to_csv(output_file, index=False)
         wnc["kappa"] = kappas
         wnc["gamma"] = gammas
-        wnc.to_csv(wnc_file, index=False)
         return wnc
 
 def load_field_wlm(field_label, plane_numbers, wlm_path):
+    """
+    This function loads the weak lensing maps for a single field in a given redshift
+    plane (or planes, if using an average). 
+    
+    """
+
     possible_filetypes = [".kappa", ".gamma_1", ".gamma_2", ".Phi"]
     searchname = "*N_4096_ang_4_rays_to_plane_29_f.*"
     files = [f for f in wlm_path.glob(searchname) if f.suffix in possible_filetypes]
     data = {}
     if not files:
-
         dirs = [path for path in wlm_path.glob("*") if path.is_dir()]
         dirnames = [path.name for path in dirs]
         if all(k in dirnames for k in ["kappa", "gamma"]):
@@ -131,7 +190,7 @@ def load_field_wlm(field_label, plane_numbers, wlm_path):
             return {"kappa": kappa, "gamma": gamma}
         elif all([any([str(pn) in name for name in dirnames]) for pn in plane_numbers]):
             #Found a directory for all the requested planes
-            if not check_for_wlm(plane_numbers, field_label, wlm_path):
+            if not check_for_wlm_maps(plane_numbers, field_label, wlm_path):
                 return
             for pn in plane_numbers:
                 plane_dir = [d for d in dirs if str(pn) in d.name]
@@ -141,10 +200,11 @@ def load_field_wlm(field_label, plane_numbers, wlm_path):
                 data.update({pn: load_field_wlm(field_label, [pn], plane_dir[0])})
             return data
         else:
-            print(f"No .kappa and .gamma files found for field {field_label}")
+            pns = ",".join([str(pn) for pn in plane_numbers])
+            print(f"No .kappa and .gamma files found for field {field_label} in plane(s) {pns}")
             return
 
-def check_for_wlm(plane_numbers, field_label, wlm_path):
+def check_for_wlm_maps(plane_numbers, field_label, wlm_path):
     """
     Checks to see if weak lensing maps exist for the given field for all
     redshift planes passed to this function.
@@ -159,16 +219,29 @@ def check_for_wlm(plane_numbers, field_label, wlm_path):
             print(f"Found multiple directories for plane {pn}!")
             return False
         plane_path = wlm_path / plane_dir[0]
-        files = [file for file in plane_path.glob("*.kappa") if basename in file.stem]
+        kappa_path = plane_path / "kappa"
+        files = [file for file in kappa_path.glob("*.kappa") if basename in file.stem]
         if len(files) != 1:
             print(f"Found wrong number of files for kappa map for field {field_label}")
             return False
     
     return True
 
-
+def check_for_wlm(wnc_path: Path, plane_numbers: list):
+    """
+    Checks to see if a given set of weighted number counts has
+    already attached weak lensing values for the given plane numbers. 
+    """
+    plane_numbers.sort()
+    fname = wnc_path.name
+    folder = wnc_path.parents[0] / "+".join([str(p) for p in plane_numbers])
+    file_path = folder / fname
+    return file_path.exists()
 
 def load_kappa(field_label, path):
+    """
+    Loads kappa files.
+    """
     basename = f"GGL_los_8_{field_label[0]}_{field_label[1]}_N_4096_ang_4_rays_to_plane"
     files = [file for file in path.glob("*.kappa") if basename in file.stem]
     if len(files) != 1:
@@ -179,6 +252,9 @@ def load_kappa(field_label, path):
     return kappa
 
 def load_gamma(field_label, path):
+    """
+    Loads gamma files. x`
+    """
     basename = f"GGL_los_8_{field_label[0]}_{field_label[1]}_N_4096_ang_4_rays_to_plane"
 
     gamma1_files = [file for file in path.glob("*.gamma_1") if basename in file.stem]

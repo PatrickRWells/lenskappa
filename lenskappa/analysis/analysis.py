@@ -9,21 +9,27 @@ import toml
 from functools import reduce 
 from lenskappa.locations import LENSKAPPA_CONFIG_LOCATION
 import json
-class InferenceException(Exception):
+import logging
+import dask
+import uuid
+from dask.distributed import Client, get_client
+from loguru import logger
+import sys
+class AnalysisException(Exception):
     pass
 
-def build_inference(config, basic_config, module):
+def build_analysis(config, basic_config, module, **kwargs):
     """
-    Build an inference from a configuration file and a module
+    Build an analysis from a configuration file and a module
     
     The "config" parameter should be a dictionary with the
-    necessary parameters for running this inference.
+    necessary parameters for running this analysis.
 
-    The basic_config inference should be a dictionary with
-    the configuration template for this inference.
+    The basic_config analysis should be a dictionary with
+    the configuration template for this analysis.
 
     The "module" should be the module where the transformations
-    for this inference are defined.
+    for this analysis are defined.
 
     """
     transformations = {}
@@ -33,15 +39,20 @@ def build_inference(config, basic_config, module):
             transformations.update({tname: f()})
         except AttributeError:
             name = basic_config["name"]
-            raise AttributeError(f"Unable to find transformation {tname} required by inference {name}")
+            raise AttributeError(f"Unable to find transformation {tname} required by analysis {name}")
     final_cfg = basic_config | config
-    return Inference(transformations, final_cfg)
+    
+    if (setup := getattr(module, "setup", False)):
+        extra_parameters = setup(final_cfg)
+        final_cfg["parameters"].update(extra_parameters)
 
-with open(LENSKAPPA_CONFIG_LOCATION / "base_inference.json", "r") as f:
-    base_inference_config = json.load(f)
-class Inference:
+    return Analysis(transformations, final_cfg, **kwargs)
+
+with open(LENSKAPPA_CONFIG_LOCATION / "base_analysis.json", "r") as f:
+    base_analysis_config = json.load(f)
+class Analysis:
     """
-    The inference class is a high-level class for transforming
+    The analysis class is a high-level class for transforming
     data. It was originally designed for computing kappa_ext
     using weighted number counts and weak lensing maps from the
     Millennium Simulation.
@@ -49,33 +60,54 @@ class Inference:
     The goal is to load a series of transformations, each of which
     takes in the output of other transformations and additional
     parameters as needed. "Transformation" is a very general term here.
-    It could refer to simply loading data from disk, for exampl.e
+    It could refer to simply loading data from disk, for example.
     """
-    base_inference_config = base_inference_config
-    def __init__(self, transformations: Dict[str, Transformation], params: dict):
+    base_analysis_config = base_analysis_config
+    def __init__(self, transformations: Dict[str, Transformation], params: dict, **kwargs):
         self.transformations = transformations
         self.params = params
+        self.tags = self.params.get("tags", [])
+        self.name = self.params["name"]
+
+        self.get_clients(**kwargs)
+
         if set(self.params["transformations"].keys()) != set(self.transformations.keys()):
-                raise InferenceException("There should be one transformation in the \"transformation\""\
+                raise AnalysisException("There should be one transformation in the \"transformation\""\
                                          " for each transformation in the \"transformations\" input dictonary"\
                                          " (and vice-versa).")
-        self.verify_inference()
+
+        self.verify_analysis()
+
+        self.build_dask_graph()
+
         self.internal_outputs = {}
         self.has_run = {name: False for name in self.transformations}
 
+    def get_clients(self, sub_analysis = False, logger_ = None, **kwargs):
+        self.logger = logger_
+        if self.logger is None:
+            self.logger = logger
+            self.logger.remove()
+            self.logger.add(sys.stderr, level="INFO")
 
+        if sub_analysis:
+            self.client = get_client()
+        else:
+            nthreads = self.params.get("threads", 1)
+            self.logger.info(f"Found threads = {nthreads}. Spinning up worker processes...")
+            self.client = Client(n_workers = nthreads)
 
-    def verify_inference(self):
+    def verify_analysis(self):
         """
         Here, we build a dependency graph and check to make
-        sure the inference is valid. For an inference to be valid, 
+        sure the analysis is valid. For an analysis to be valid, 
         it must have at least one transformation marked as an "output"
         transformation.
         
         """
         self.outputs = [k for k, v in self.params["transformations"].items() if v.get("is-output", False)]
-        if not self.outputs:
-            raise InferenceException("Inferences must include at least one output transformation")
+        if not (self.outputs or "analysis-builder" in self.tags) :
+            raise AnalysisException("Analysis must include at least one output transformation")
         
         self.build_dependency_graph()
         self.check_params()
@@ -83,7 +115,7 @@ class Inference:
 
     def build_dependency_graph(self):
         """
-        Once an inference has been defined, we have to check its validity.
+        Once an analysis has been defined, we have to check its validity.
         Obvious failrue cases include if two transformations depend on the output
         of each other. Or if there is a loop (i.e. three transformations which
         depend on eachother). To check this, we consruct a directed graph of 
@@ -106,13 +138,13 @@ class Inference:
             dependencies = tparams.get("dependencies", None)
             if dependencies is not None:
                 if type(dependencies) != dict:
-                    raise InferenceException("Dependencies should be passed as a dictionary, " \
+                    raise AnalysisException("Dependencies should be passed as a dictionary, " \
                                             "where the key is the name of the dependency " \
                                             "transformation and the value is the name the argument " \
                                             "with its output will be assigned when passed to this "\
                                             "transformation.")
                 if not all([dep in transformations.keys() for dep in dependencies]):
-                    raise InferenceException("Unknown dependencies found! If this transformation needs a "\
+                    raise AnalysisException("Unknown dependencies found! If this transformation needs a "\
                                              "parameter, you should put the parameter name in the needed-parameters "\
                                              "block of the dependency's configuration.")
 
@@ -123,11 +155,8 @@ class Inference:
 
         cycles = list(simple_cycles(self.dependency_graph))
         if cycles:
-            raise InferenceException("Inference contains a dependency cycle!")
+            raise AnalysisException(f"Analysis {self.name} contains a dependency cycle!")
         
-        isolated_transformation = list(isolates(self.dependency_graph))
-        if isolated_transformation:
-            raise InferenceException("Inference contains an isolated step")
         self.predecessors = {}
 
         # Just keep track of everything that needs to run before this transformation
@@ -148,25 +177,81 @@ class Inference:
         for transformation in self.transformations:
             needed_params = self.params["transformations"][transformation].get("needed-parameters", [])
             self.needed_params = self.needed_params.union(needed_params)
-        
         self.verify_params()
         found_params = set(self.params["parameters"].keys())
 
         if (missing := self.needed_params - found_params):
             missing = ",".join(missing)
-            raise InferenceException(f"Inference is missing required parameters {missing}")
+            raise AnalysisException(f"Analysis is missing required parameters {missing}")
     
+    def build_dask_graph(self, *args, **kwargs):
+        self.delayed = {}
+        self.scheduled = {n: False for n in self.transformations}
+        while True:
+            for transformation in self.transformations:
+                if self.scheduled[transformation]:
+                    continue
+                dependencies = self.predecessors[transformation]
+                if not dependencies or all([self.scheduled[k] for k in dependencies]):
+                    self.schedule_transformation(transformation)
+            if all(self.scheduled.values()):
+                break
+
+    def schedule_transformation(self, transformation):
+        if self.params["transformations"][transformation].get("analysis-builder", False):
+            self.handle_analysis_builder(transformation)
+        else:
+            inputs = self.get_transformation_parameters(transformation, scheduled = True)
+            delayed_fn = dask.delayed(self.transformations[transformation])(**inputs)
+            self.delayed.update({transformation: delayed_fn})
+            self.scheduled[transformation] = True
+    
+    def handle_analysis_builder(self, transformation):
+        """
+        When one of the transformations in an analysis creates new analyses,
+        we have to be careful when adding them to dask. Ideally, we'd be able
+        to fully expand the graph before running anything. But if this analysis
+        builder depends on results of pervious transformations, there's no way
+        to avoid running this in bits and pieces.  
+        
+        So we run any transformation leading up to this builder, then take the 
+        delatedy outputs from the analyses that have been built and glue it onto 
+        the execution graph we've already built. 
+        """
+        
+        predecessors = self.predecessors[transformation]
+        for predecessor in predecessors:
+            self.run_to(predecessor)
+        
+        analyses = self.run_single(transformation, sub_analysis = True)
+        self_is_output = self.params["transformations"][transformation].get("is-output", False)
+        for a in analyses:
+            outputs = [a.delayed[output] for output in a.outputs]
+            if self_is_output:
+                a_uuid = str(uuid.uuid1())
+                output_names = ["-".join([output, a_uuid]) for output in a.outputs]
+                output_dict = dict(list(zip(output_names, outputs)))
+                self.delayed.update(output_dict)
+                self.outputs.extend(output_names)
+            else:
+                self.delayed.update({transformation: outputs})
+                
+        self.outputs.remove(transformation)
+        self.scheduled[transformation] = True
+
+    
+
     def verify_params(self):
         for param in self.needed_params:
-            if param in self.base_inference_config["reserved-keys"]:
-                raise InferenceException(f"Key \"{param}\" is a reserved keyword and cannot be used as"\
+            if param in self.base_analysis_config["reserved-keys"]:
+                raise AnalysisException(f"Key \"{param}\" is a reserved keyword and cannot be used as"\
                                           " a parameter in an analysis definition.")
 
 
 
-    def run_inference(self):
+    def run_analysis(self):
         """
-        Runs the inference. Starts by running transformations that have
+        Runs the analysis. Starts by running transformations that have
         no dependencies. Ensures that all nodes are visited exactly once.
 
         We've already verified that this is a valid dependency graph, i.e. that
@@ -175,22 +260,42 @@ class Inference:
         to see if its dependencies HAVE been run, and run it if so. Once everything
         has been run once, we break.
         """
-
-        for transformation in self.starts:
-            self.run_transformation(transformation)
-        while True:
-            for transformation in self.transformations:
-                if self.has_run[transformation]:
-                    continue
-                dependencies = self.predecessors[transformation]
-                if all([self.has_run[k] for k in dependencies]):
-                    self.run_transformation(transformation)
-            if all(self.has_run.values()):
-                break
-        return self.cleanup()
+        outputs = {}
+        for output in self.outputs:
+            outputs.update({output: self.delayed[output].compute()})
+        return outputs
 
 
-    def run_transformation(self, name):
+
+    def get_transformation_parameters(self, name, scheduled = False):
+        """
+        Retrieve any parameters that are required by the transformation with this name
+        and return them as a dictionary. 
+        
+        """
+
+        arguments = {}
+        for dep in self.dependency_graph.predecessors(name):
+            alias = self.params["transformations"][name]["dependencies"][dep]
+            if not alias:
+                continue
+            if scheduled:
+                output = self.delayed[dep]
+            else:
+                output = self.internal_outputs[dep]
+            arguments.update({alias: output})
+        needed_params = self.params["transformations"][name].get("needed-parameters", [])
+        optional_params = self.params["transformations"][name].get("optional-parameters", [])
+        all_params = needed_params + optional_params
+        for param in all_params:
+            pvalue = self.params["parameters"].get(param, None)
+            if pvalue is not None: #ugly I know, but "if val" doesn't work for some values
+                arguments.update({param: pvalue})
+        arguments.update({"logger_": self.logger})
+        arguments.update({"name": self.name})
+        return arguments
+
+    def run_single(self, name, **kwargs):
         """
         Runs a single transformation by name. Before we get here,
         we have always checked to make sure all the necessary parameters are
@@ -201,25 +306,12 @@ class Inference:
         fails. 
         
         """
-        print(f"MAIN: Running transformation \"{name}\"")
+        self.logger.debug(f"Running transformation \"{name}\"")
+        transformation_parameters = self.get_transformation_parameters(name, )
+        transformation_output = self.transformations[name](**transformation_parameters, **kwargs)
+        return transformation_output
 
-        arguments = {}
-        for dep in self.dependency_graph.predecessors(name):
-            alias = self.params["transformations"][name]["dependencies"][dep]
-            output = self.internal_outputs[dep]
-            arguments.update({alias: output})
-        needed_params = self.params["transformations"][name].get("needed-parameters", [])
-        optional_params = self.params["transformations"][name].get("optional-parameters", [])
-        all_params = needed_params + optional_params
-        for param in all_params:
-            pvalue = self.params["parameters"].get(param, False)
-            if pvalue:
-                arguments.update({param: pvalue})
-        transformation_output = self.transformations[name](**arguments)
-        self.internal_outputs.update({name: transformation_output})
-        self.has_run[name] = True
-
-    def run_to(self, transformation_name: str):
+    def run_to(self, transformation_name: str, **kwargs):
         """
         Run this analysis up to and including a particular transformation. This will
         determine the shortest path that includes all prerequisite transformations.
@@ -232,36 +324,16 @@ class Inference:
             raise KeyError(f"Transformation {transformation_name} not found in this analysis!")
 
         #If this transformation has no prereqs, just run it
-        if transformation_name in self.starts:
-            self.run_transformation(transformation_name)
-            return self.internal_outputs[transformation_name]
         
         #If this transformation is the only output transformation, throw an error
-        if transformation_name in self.outputs and len(self.outputs) == 0:
-            raise InferenceException(f"Running to transformation {transformation_name} would require running"\
-                                    "the full analysis! Use \"run_analysis\" instead.")
         
+        self.run_transformation(transformation_name, **kwargs)
         #Otherwise, we determine which transformations we need to run first,
         #and run those
-        necessary_paths = []
-        for start in self.starts:
-            necessary_paths.extend(list(all_simple_paths(self.dependency_graph, start, transformation_name)))
-        #Get the nodes in these paths that are actually unique
-        unique_transformations = reduce(lambda l, r: set(l).union(r), necessary_paths )
-        while True:
-            for transformation in unique_transformations:
-                if self.has_run[transformation]:
-                    continue
-                dependencies = self.predecessors[transformation]
-                if all([self.has_run[k] for k in dependencies]):
-                    self.run_transformation(transformation)
-            if self.has_run[transformation_name]:
-                break
-        return self.internal_outputs[transformation_name]
 
     def reset(self):
         """
-        Completely reset an inference, as though nothing has run. Does
+        Completely reset an analysis, as though nothing has run. Does
         not discard the dependency graph and related products.
         This cannot be undone, so use carefully.
 

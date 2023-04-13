@@ -57,15 +57,20 @@ def delegate_weights(weights_list, nweights):
 
 def setup(config):
     ret = {}
+    weight_path = config["parameters"]["wnc_path"]
+    spec = weight_path.stem
+    spec = spec.split("_")
+    spec = {"limmag": spec[0], "aperture": spec[1]}
     if "redshift_plane" not in config["parameters"]:
         redshift_plane = get_redshift_plane(config["parameters"]["z_s"])
         ret.update({"redshift_plane": redshift_plane})
+    ret.update({"spec": spec})
     return ret
 
 
 
 class load_wnc(Transformation):
-    def __call__(self, wnc_path: str, logger_: logging.Logger):
+    def __call__(self, wnc_path: str, logger_: logging.Logger, **kwargs):
         path = Path(wnc_path)
         if not path.exists():
             raise FileNotFoundError(f"No file found at {str(path)}")
@@ -73,7 +78,9 @@ class load_wnc(Transformation):
     
 class build_wnc_distribution(Transformation):
 
-    def __call__(self, wnc: pd.DataFrame, logger_: logging.Logger, weights = ["gal", "massoverr", "zoverr"], bins_per_dim = 100, weights_min = 0, weights_max = 3, *args, **kwargs):
+    def __call__(self, wnc: pd.DataFrame, spec: dict, logger_: logging.Logger, name, weights = ["gal", "massoverr", "zoverr"], bins_per_dim = 100, weights_min = 0, weights_max = 3, *args, **kwargs):
+        weight_str = ", ".join(weights)
+        logger_.info(f"SYSTEM {name}: LIMMAG {spec['limmag']}: APERTURE {spec['aperture']}: Building distribution for weighted number counts for weight combination {weight_str}" )
         selected_weights = wnc[weights].to_numpy()
         if type(weights_min) == dict:
             bounds = [(weights_min[w], weights_max[w]) for w in weights]
@@ -83,7 +90,7 @@ class build_wnc_distribution(Transformation):
         return hist, edges
     
 class load_ms_wnc(Transformation):
-    def __call__(self, ms_wnc_path, logger_: logging.Logger):
+    def __call__(self, ms_wnc_path, logger_: logging.Logger, **kwargs):
         #logger_.info(f"Loading and normalize MS weights")
         path = Path(ms_wnc_path)
         file_paths = [f for f in path.glob("*.csv")]
@@ -108,7 +115,7 @@ class load_ms_wnc(Transformation):
         return output_weights
 
 class attach_ms_wlm(Transformation):
-    def __call__(self, ms_wnc, z_s, wlm_path, ms_wnc_path, logger_: logging.Logger, redshift_plane = None, threads=1):
+    def __call__(self, ms_wnc, z_s, wlm_path, ms_wnc_path, logger_: logging.Logger, redshift_plane = None, **kwargs):
         all = []
         missing = {}
         for field, weights in ms_wnc.items():
@@ -117,13 +124,13 @@ class attach_ms_wlm(Transformation):
             else:
                 missing.update({field: weights})
         if missing:
-            remaining = attach_wlm(missing, z_s, redshift_plane, Path(wlm_path), Path(ms_wnc_path), threads)
+            remaining = attach_wlm(missing, z_s, redshift_plane, Path(wlm_path), Path(ms_wnc_path))
             all = all + [remaining]
         all_weights = pd.concat(all)
         return all_weights
     
 class partition_ms_weights(Transformation):
-    def __call__(self, ms_weights_wwlm, weights, wnc_distribution, logger_: logging.Logger):
+    def __call__(self, ms_weights_wwlm, weights, wnc_distribution, logger_: logging.Logger, **kwargs):
         edges = wnc_distribution[1]
         ms_weight_values = ms_weights_wwlm[weights].to_numpy()
         indices = np.empty(ms_weight_values.shape[1], dtype=object)
@@ -141,12 +148,13 @@ class partition_ms_weights(Transformation):
 
 
 class compute_pdfs(Transformation):
-    def __call__(self, ms_weights_wwlm, ms_weight_partitions, wnc_distribution, logger_: logging.Logger, kappa_bins = None, output_path = None, name=None):
+    def __call__(self, ms_weights_wwlm, spec, ms_weight_partitions, wnc_distribution, weights, logger_: logging.Logger, kappa_bins = None, output_path = None, name=None):
         if kappa_bins is None:
             kappa_bins = np.linspace(-0.2, 0.4, 1000)
         pdf = np.zeros_like(kappa_bins[:-1])
         weight_pdf = wnc_distribution[0]
         kappas = ms_weights_wwlm["kappa"].to_numpy()
+        weights_str = ", ".join(weights)
         idxs = [np.array(idx) for idx in np.ndindex(weight_pdf.shape)]
         #f_ = partial(compute_single_pdf, ms_partitions = ms_weight_partitions, kappas = kappas, kappa_bins = kappa_bins)
         client = get_client()
@@ -162,6 +170,7 @@ class compute_pdfs(Transformation):
             f_ = partial(compute_pdf_range, idx_list = idx_range, weight_pdf = weight_pdf, ms_partitions = ms_weight_partitions, kappas = kappas, kappa_bins = kappa_bins)
             results.append(client.submit(f_))
         secede()
+        logger_.info(f"SYSTEM {name}: LIMMAG {spec['limmag']}: APERTURE {spec['aperture']}: computing kappa histogram for weight combination {weights_str}")
         results = np.array(client.gather(results))
         rejoin()
         pdf = np.sum(results, axis=0)

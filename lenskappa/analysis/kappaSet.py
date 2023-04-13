@@ -46,7 +46,6 @@ base_weights: list, default = None
 
 
 """
-logger = logging.getLogger("KappaSet")
 
 class build_analyses(Transformation):
     def __call__(self, *args, **kwargs):
@@ -56,12 +55,11 @@ class build_analyses(Transformation):
         wnc_base_path: Path, ms_wnc_base_path: Path,
         wlm_base_path: Path, output_base_path: Path,
         wnc_base_names: List[str], weights: List[str], 
-        nweights: int, z_s: float, base_weights: List[str] = None, **kwargs):
+        nweights: int, z_s: float, logger_,  base_weights: List[str] = None, **kwargs):
 
         wnc_paths = [Path(wnc_base_path) / f"{bn}.csv" for bn in wnc_base_names]
         ms_weight_paths = [Path(ms_wnc_base_path) / f"{bn}" for bn in wnc_base_names]
         output_paths = [Path(output_base_path)  / bn for bn in wnc_base_names]
-
         for op in output_paths:
             op.mkdir(exist_ok=True, parents=True)
 
@@ -80,13 +78,14 @@ class build_analyses(Transformation):
 
         return analyses
 
-    def build_single_analysis(self, wnc_path, ms_weight_paths, output_path, wlm_base_path, weight_combination, z_s, **kwargs):
+    def build_single_analysis(self, wnc_path, ms_weight_paths, output_path, wlm_base_path, weight_combination, z_s, name, **kwargs):
         fname = "_".join(weight_combination) + ".k"
         new_output_path = Path(output_path) / fname
 
 
         parameters = {
             "base-analysis": "kappa",
+            "name": name,
             "parameters": {
                 "wnc_path": wnc_path,
                 "ms_wnc_path": ms_weight_paths,

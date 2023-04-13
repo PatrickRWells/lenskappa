@@ -83,17 +83,20 @@ class Analysis:
         self.internal_outputs = {}
         self.has_run = {name: False for name in self.transformations}
 
-    def get_clients(self, sub_analysis = False, logger_ = None):
-        if sub_analysis:
-            self.client = get_client()
-        else:
-            self.client = Client()
+    def get_clients(self, sub_analysis = False, logger_ = None, **kwargs):
         self.logger = logger_
         if self.logger is None:
             self.logger = logger
             self.logger.remove()
             self.logger.add(sys.stderr, level="INFO")
-            
+
+        if sub_analysis:
+            self.client = get_client()
+        else:
+            nthreads = self.params.get("threads", 1)
+            self.logger.info(f"Found threads = {nthreads}. Spinning up worker processes...")
+            self.client = Client(n_workers = nthreads)
+
     def verify_analysis(self):
         """
         Here, we build a dependency graph and check to make
@@ -289,6 +292,7 @@ class Analysis:
             if pvalue is not None: #ugly I know, but "if val" doesn't work for some values
                 arguments.update({param: pvalue})
         arguments.update({"logger_": self.logger})
+        arguments.update({"name": self.name})
         return arguments
 
     def run_single(self, name, **kwargs):

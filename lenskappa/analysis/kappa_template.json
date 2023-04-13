@@ -16,7 +16,7 @@
         },
         "build_wnc_distribution" : {
             "dependencies": {"load_wnc": "wnc"},
-            "needed-parameters": ["weights"],
+            "needed-parameters": ["weights", "spec"],
             "optional-parameters": ["weights_min", "weights_max", "bins_per_dim"]
         },
         "partition_ms_weights" : {
@@ -29,6 +29,7 @@
                 "build_wnc_distribution": "wnc_distribution",
                 "attach_ms_wlm": "ms_weights_wwlm"
             },
+            "needed-parameters": ["weights", "spec"],
             "optional-parameters": ["kappa_bins", "output_path"],
             "is-output": true
         }

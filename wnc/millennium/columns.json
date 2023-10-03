@@ -1,0 +1,6 @@
+{
+    "ms": {
+        "redshift": "z_spec",
+        "mag_i": "mag_SDSS_i"    
+    }
+}

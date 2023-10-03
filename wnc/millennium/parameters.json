@@ -1,0 +1,22 @@
+{
+    "sampling_parameters": {
+        "sample_shape": "Circle",
+        "sample_dimensions": "@ms_parameters.radius",
+        "sample_type": "custom",
+        "region_center": {
+            "coordinate": [0, 0],
+            "units": "deg"
+        },
+        "region_bounds": {
+            "value": [-2, -2, 2, 2],
+            "units": "deg"
+        }
+    },
+    "output_parameters": {
+        "output_formats": "dataframe",
+        "write_format": "csv"
+    },
+    "dataset_parameters":  {
+        "dataset_name": "ms"
+    }
+}

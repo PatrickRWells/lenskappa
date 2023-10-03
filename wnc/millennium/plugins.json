@@ -1,0 +1,10 @@
+{
+        "ms_sampler": {
+            "plugin-type": "sampler",
+            "needed-parameters": ["ms_parameters.spacing"]
+        },
+        "generate_tasks": {
+            "plugin-type": "task_generator",
+            "needed-parameters": ["ms_parameters.fields_to_sample"]
+        }
+}

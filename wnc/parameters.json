@@ -1,0 +1,10 @@
+{
+    "sampling_parameters": {
+        "sample_shape": "Circle",
+        "sample_dimensions": "@geometry_parameters.radius"
+    },
+    "output_parameters": {
+        "output_formats": "dataframe",
+        "write_format": "csv"
+    }
+}

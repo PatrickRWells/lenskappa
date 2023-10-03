@@ -1,0 +1,28 @@
+base-analysis = "wnc_single"
+analysis-mod = "test_module"
+
+threads = 4
+weights = ["gal", "oneoverr"]
+
+[sampling_parameters]
+    region_type = "Rectangle"
+    sample_type = "Random"
+    n_samples = 50000
+    region_bounds = {value = [31.0, -11.0, 38.5, -4.0], units="degree"}
+
+[lens_parameters]
+    [lens_parameters.SL2SJ0849-0412]
+        lens_coordinate = {coordinate = [132.28963,-4.20742], units="degree"}
+        source_redshift = 1.33
+    [lens_parameters.SL2SJ0901-0259]
+        lens_coordinate = {coordinate = [135.27519, -2.9851564], units="degree"}
+        source_redshift = 1.19
+[geometry_parameters] 
+    radius = {value = [120, 45], units="arcsec"}
+    inner_radius = {value = 5, units="arcsec"}
+
+[dataset_parameters]
+    dataset_name= "cfht"
+
+[filters]
+    limiting_magnitude = [23, 24]

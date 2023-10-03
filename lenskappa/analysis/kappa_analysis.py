@@ -17,6 +17,8 @@ import time
 import psutil
 import os
 import random
+import dask.bag as db
+from dask.diagnostics import ProgressBar
 """
 This analysis represents a single kappa inference,
 using a particular set of weights.
@@ -87,6 +89,7 @@ class build_wnc_distribution(Transformation):
         else:
             bounds = [(weights_min, weights_max) for _ in weights]
         hist, edges = np.histogramdd(selected_weights, bins_per_dim, bounds, density=True)
+        logger_.info("Done.")
         return hist, edges
     
 class load_ms_wnc(Transformation):
@@ -100,7 +103,8 @@ class load_ms_wnc(Transformation):
             field = re.findall(r"\d", name)
             key = tuple(int(f) for f in field)
             field_data = pd.read_csv(path)
-            data.update({key: self.normalize_ms_weights(field_data)})
+            if len(field_data) > 0:
+                data.update({key: self.normalize_ms_weights(field_data)})
         return data
 
 
@@ -148,7 +152,7 @@ class partition_ms_weights(Transformation):
 
 
 class compute_pdfs(Transformation):
-    def __call__(self, ms_weights_wwlm, spec, ms_weight_partitions, wnc_distribution, weights, logger_: logging.Logger, kappa_bins = None, output_path = None, name=None):
+    def __call__(self, ms_weights_wwlm, spec, ms_weight_partitions, wnc_distribution, weights, logger_: logging.Logger, kappa_bins = None, output_path = None, name=None, fully_distribute = True):
         if kappa_bins is None:
             kappa_bins = np.linspace(-0.2, 0.4, 1000)
         pdf = np.zeros_like(kappa_bins[:-1])
@@ -162,17 +166,30 @@ class compute_pdfs(Transformation):
         nper = len(idxs) // nworkers
         random.shuffle(idxs)
         results = []
-        for i in range(nworkers):
-            if i == (nworkers - 1):
-                idx_range = idxs[nper*i: -1]
-            else:
-                idx_range = idxs[nper*i: nper*(i+1)]
-            f_ = partial(compute_pdf_range, idx_list = idx_range, weight_pdf = weight_pdf, ms_partitions = ms_weight_partitions, kappas = kappas, kappa_bins = kappa_bins)
-            results.append(client.submit(f_))
-        secede()
-        logger_.info(f"SYSTEM {name}: LIMMAG {spec['limmag']}: APERTURE {spec['aperture']}: computing kappa histogram for weight combination {weights_str}")
-        results = np.array(client.gather(results))
-        rejoin()
+        if fully_distribute:
+            pdf_values = [weight_pdf[tuple(idx)] for idx in idxs]
+            inputs = list(zip(idxs, pdf_values))
+            logger_.info("Distributing work to workers...")
+            bag = db.from_sequence(inputs, npartitions = nworkers)
+            logger_.info("created bag")
+            bag  = bag.map(compute_single_pdf, ms_partitions = ms_weight_partitions, kappas = kappas, kappa_bins = kappa_bins)
+            logger_.info("Mapping complete...")
+            logger_.info(f"SYSTEM {name}: LIMMAG {spec['limmag']}: APERTURE {spec['aperture']}: computing kappa histogram for weight combination {weights_str}")
+            pb = ProgressBar()
+            pb.register()
+            results = bag.compute()
+        else:
+            for i in range(nworkers):
+                if i == (nworkers - 1):
+                    idx_range = idxs[nper*i: -1]
+                else:
+                    idx_range = idxs[nper*i: nper*(i+1)]
+                f_ = partial(compute_pdf_range, idx_list = idx_range, weight_pdf = weight_pdf, ms_partitions = ms_weight_partitions, kappas = kappas, kappa_bins = kappa_bins)
+                results.append(client.submit(f_))
+                secede()
+                logger_.info(f"SYSTEM {name}: LIMMAG {spec['limmag']}: APERTURE {spec['aperture']}: computing kappa histogram for weight combination {weights_str}")
+                results = np.array(client.gather(results))
+                rejoin()
         pdf = np.sum(results, axis=0)
         if output_path is not None:
             output = {"bins": kappa_bins, "pdf": pdf}
@@ -183,13 +200,14 @@ class compute_pdfs(Transformation):
 
 
 def compute_pdf_range(idx_list, weight_pdf, ms_partitions, kappas, kappa_bins):
-    results = np.array([compute_single_pdf(idx, ms_partitions, kappas, kappa_bins) for idx in idx_list])
-    results = np.array([result*weight_pdf[tuple(idx_list[i])] for i, result in enumerate(results)])
+    results = np.array([compute_single_pdf(idx, ms_partitions, kappas, kappa_bins, weight_pdf[tuple(idx)]) for idx in idx_list])
     results = np.sum(results, axis=0)
     return results
 
 @numba.njit
-def compute_single_pdf(idx, ms_partitions, kappas, kappa_bins):
+def compute_single_pdf(inputs,  ms_partitions, kappas, kappa_bins):
+        idx = inputs[0]
+        pdf_value = inputs[1]
         mask = np.ones(len(ms_partitions), dtype=np.bool8)
         bi_mask = (ms_partitions == idx)
         for i in range(bi_mask.shape[1]):
@@ -199,4 +217,4 @@ def compute_single_pdf(idx, ms_partitions, kappas, kappa_bins):
             histogram = histogram/np.count_nonzero(mask)
         else:
             histogram = np.zeros(len(kappa_bins) - 1, dtype=np.float64)
-        return histogram
+        return histogram*pdf_value

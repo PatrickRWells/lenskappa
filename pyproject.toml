@@ -1,11 +1,11 @@
 [tool.poetry]
 name = "lenskappa"
-version = "0.5.2"
+version = "0.5.8"
 description = ""
 authors = ["Patrick Wells <pwells@ucdavis.edu>"]
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.9"
 numpy = "^1.22.3"
 pandas = "^1.4.1"
 Shapely = "^1.8.1"
@@ -18,6 +18,9 @@ heinlein = "^0.4.0"
 multiprocess = "^0.70.13"
 networkx = "^3.0"
 dask = {extras = ["distributed"], version = "^2023.3.2"}
+tqdm = "^4.65"
+numba = "^0.56"
+loguru = "^0.7"
 
 [tool.poetry.scripts]
 lenskappa_analysis = "lenskappa.analysis.run_analysis:run_analysis"

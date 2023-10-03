@@ -1,10 +1,10 @@
-[tool.poetry]
+[project]
 name = "lenskappa"
 version = "0.5.8"
 description = ""
 authors = ["Patrick Wells <pwells@ucdavis.edu>"]
 
-[tool.poetry.dependencies]
+[project.dependencies]
 python = "^3.9"
 numpy = "^1.22.3"
 pandas = "^1.4.1"
@@ -22,11 +22,3 @@ tqdm = "^4.65"
 numba = "^0.56"
 loguru = "^0.7"
 
-[tool.poetry.scripts]
-lenskappa_analysis = "lenskappa.analysis.run_analysis:run_analysis"
-
-[tool.poetry.dev-dependencies]
-
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
